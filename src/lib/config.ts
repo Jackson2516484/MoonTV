@@ -284,6 +284,9 @@ export async function getConfig(): Promise<AdminConfig> {
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
   if (process.env.DOCKER_ENV === 'true' || storageType === 'localstorage') {
     await initConfig();
+    if (!cachedConfig) {
+      throw new Error('Failed to initialize configuration in local/docker mode.');
+    }
     return cachedConfig;
   }
   // 非 docker 环境且 DB 存储，直接读 db 配置
