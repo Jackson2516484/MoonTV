@@ -395,6 +395,9 @@ export async function getConfig(): Promise<AdminConfig> {
     // DB 无配置，执行一次初始化
     await initConfig();
   }
+  if (!cachedConfig) {
+    throw new Error('Failed to initialize configuration.');
+  }
   return cachedConfig;
 }
 
