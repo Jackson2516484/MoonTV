@@ -72,6 +72,36 @@ function PlayPageClient() {
     skipConfig.outro_time,
   ]);
 
+  // 下载按钮状态
+  const [downloadInfo, setDownloadInfo] = useState({
+    href: '',
+    disabled: true,
+    filename: '',
+  });
+
+  // 监听下载信息变化，更新播放器设置
+  useEffect(() => {
+    if (artPlayerRef.current) {
+      artPlayerRef.current.setting.update({
+        name: 'download-video',
+        html: downloadInfo.disabled ? '下载 (不支持)' : '下载视频',
+        tooltip: downloadInfo.disabled
+          ? '流媒体不支持下载'
+          : downloadInfo.filename,
+        click: () => {
+          if (!downloadInfo.disabled) {
+            const link = document.createElement('a');
+            link.href = downloadInfo.href;
+            link.download = downloadInfo.filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+        },
+      });
+    }
+  }, [downloadInfo]);
+
   // 跳过检查的时间间隔控制
   const lastSkipCheckRef = useRef(0);
 
@@ -1161,6 +1191,30 @@ function PlayPageClient() {
   };
 
   useEffect(() => {
+    // 下载按钮逻辑
+    if (videoUrl) {
+      const isDownloadable =
+        videoUrl.includes('.mp4') || videoUrl.includes('.webm');
+      if (isDownloadable) {
+        try {
+          const urlParts = new URL(videoUrl).pathname.split('/');
+          const filename = urlParts[urlParts.length - 1];
+          setDownloadInfo({
+            href: videoUrl,
+            disabled: false,
+            filename: filename || 'video.mp4',
+          });
+        } catch (e) {
+          // URL 解析失败，当作不可下载
+          setDownloadInfo({ href: '', disabled: true, filename: '' });
+        }
+      } else {
+        setDownloadInfo({ href: '', disabled: true, filename: '' });
+      }
+    } else {
+      setDownloadInfo({ href: '', disabled: true, filename: '' });
+    }
+
     if (
       !Artplayer ||
       !Hls ||
@@ -1318,6 +1372,14 @@ function PlayPageClient() {
             '<img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MCIgaGVpZ2h0PSI1MCIgdmlld0JveD0iMCAwIDUwIDUwIj48cGF0aCBkPSJNMjUuMjUxIDYuNDYxYy0xMC4zMTggMC0xOC42ODMgOC4zNjUtMTguNjgzIDE4LjY4M2g0LjA2OGMwLTguMDcgNi41NDUtMTQuNjE1IDE0LjYxNS0xNC42MTVWNi40NjF6IiBmaWxsPSIjMDA5Njg4Ij48YW5pbWF0ZVRyYW5zZm9ybSBhdHRyaWJ1dGVOYW1lPSJ0cmFuc2Zvcm0iIGF0dHJpYnV0ZVR5cGU9IlhNTCIgZHVyPSIxcyIgZnJvbT0iMCAyNSAyNSIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiIHRvPSIzNjAgMjUgMjUiIHR5cGU9InJvdGF0ZSIvPjwvcGF0aD48L3N2Zz4=">',
         },
         settings: [
+          {
+            name: 'download-video',
+            html: '下载',
+            icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>',
+            click: () => {
+              /* placeholder */
+            },
+          },
           {
             html: '去广告',
             icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
