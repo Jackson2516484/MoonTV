@@ -27,6 +27,9 @@ body {
 
 body {
   color: rgb(var(--foreground-rgb));
+  padding-top: env(safe-area-inset-top);    /* 避让刘海/摄像头 */
+  padding-bottom: env(safe-area-inset-bottom); /* 避让底部横条 */
+  background-color: #000; /* 防止刘海区域露出白色背景 */
 }
 
 html:not(.dark) body {

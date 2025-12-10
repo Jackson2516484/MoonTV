@@ -22,6 +22,9 @@
     "pages:build": "pnpm gen:runtime && pnpm gen:manifest && next build && npx @cloudflare/next-on-pages --experimental-minify"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/cli": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
     "@cloudflare/next-on-pages": "^1.13.12",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/modifiers": "^9.0.0",
@@ -51,6 +54,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@commitlint/cli": "^16.3.0",
     "@commitlint/config-conventional": "^16.2.4",
     "@svgr/webpack": "^8.1.0",

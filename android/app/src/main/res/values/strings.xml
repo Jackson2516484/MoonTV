@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MoonTv</string>
+    <string name="title_activity_main">MoonTv</string>
+    <string name="package_name">com.wangzhiwei05.moontv</string>
+    <string name="custom_url_scheme">com.wangzhiwei05.moontv</string>
+</resources>

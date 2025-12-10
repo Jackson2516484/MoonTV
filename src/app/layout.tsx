@@ -7,12 +7,19 @@ import './globals.css';
 import 'sweetalert2/dist/sweetalert2.min.css';
 
 import { getConfig } from '@/lib/config';
-import RuntimeConfig from '@/lib/runtime';
+//import RuntimeConfig from '@/lib/runtime';
 
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 
 const inter = Inter({ subsets: ['latin'] });
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false, // 🚫 禁止缩放
+  viewportFit: 'cover', // 📱 铺满全屏（含刘海区）
+};
 
 // 动态生成 metadata，支持配置更新后的标题变化
 export async function generateMetadata(): Promise<Metadata> {
@@ -32,11 +39,6 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export const viewport: Viewport = {
-  themeColor: '#000000',
-  viewportFit: 'cover',
-};
-
 export default async function RootLayout({
   children,
 }: {
@@ -52,12 +54,9 @@ export default async function RootLayout({
   let disableYellowFilter =
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
   let customCategories =
-    (RuntimeConfig as any).custom_category?.map((category: any) => ({
-      name: 'name' in category ? category.name : '',
-      type: category.type,
-      query: category.query,
-    })) || ([] as Array<{ name: string; type: 'movie' | 'tv'; query: string }>);
-  if (
+  ([] as Array<{ name: string; type: 'movie' | 'tv'; query: string }>);
+
+    if (
     process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'd1' &&
     process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'upstash'
   ) {
@@ -90,10 +89,6 @@ export default async function RootLayout({
   return (
     <html lang='zh-CN' suppressHydrationWarning>
       <head>
-        <meta
-          name='viewport'
-          content='width=device-width, initial-scale=1.0, viewport-fit=cover'
-        />
         {/* 将配置序列化后直接写入脚本，浏览器端可通过 window.RUNTIME_CONFIG 获取 */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script
