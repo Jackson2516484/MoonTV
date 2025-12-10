@@ -7,21 +7,23 @@ import './globals.css';
 import 'sweetalert2/dist/sweetalert2.min.css';
 
 import { getConfig } from '@/lib/config';
-//import RuntimeConfig from '@/lib/runtime';
+// import RuntimeConfig from '@/lib/runtime'; // ❌ 已注释，解决报错
 
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 
 const inter = Inter({ subsets: ['latin'] });
+
+// ✅ 完美配置：禁止缩放 + 铺满全屏
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
-  userScalable: false, // 🚫 禁止缩放
-  viewportFit: 'cover', // 📱 铺满全屏（含刘海区）
+  userScalable: false,
+  viewportFit: 'cover',
 };
 
-// 动态生成 metadata，支持配置更新后的标题变化
+// 动态生成 metadata
 export async function generateMetadata(): Promise<Metadata> {
   let siteName = process.env.SITE_NAME || 'MoonTV';
   if (
@@ -53,10 +55,11 @@ export default async function RootLayout({
   let doubanProxy = process.env.NEXT_PUBLIC_DOUBAN_PROXY || '';
   let disableYellowFilter =
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
-  let customCategories =
-  ([] as Array<{ name: string; type: 'movie' | 'tv'; query: string }>);
+  
+  // ✅ 修复报错：直接给空数组，不再引用 RuntimeConfig
+  let customCategories = ([] as Array<{ name: string; type: 'movie' | 'tv'; query: string }>);
 
-    if (
+  if (
     process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'd1' &&
     process.env.NEXT_PUBLIC_STORAGE_TYPE !== 'upstash'
   ) {
@@ -76,7 +79,7 @@ export default async function RootLayout({
     }));
   }
 
-  // 将运行时配置注入到全局 window 对象，供客户端在运行时读取
+  // 将运行时配置注入到全局 window 对象
   const runtimeConfig = {
     STORAGE_TYPE: process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage',
     ENABLE_REGISTER: enableRegister,
@@ -89,7 +92,8 @@ export default async function RootLayout({
   return (
     <html lang='zh-CN' suppressHydrationWarning>
       <head>
-        {/* 将配置序列化后直接写入脚本，浏览器端可通过 window.RUNTIME_CONFIG 获取 */}
+        {/* ❌ 这里的旧 meta viewport 已经被我删除了，不要加回来！ */}
+        
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script
           dangerouslySetInnerHTML={{
