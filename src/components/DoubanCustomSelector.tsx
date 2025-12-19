@@ -80,7 +80,7 @@ const DoubanCustomSelector: React.FC<DoubanCustomSelectorProps> = ({
     }
   }, []);
 
-  // 添加二级选择器的鼠标滚轮事件监听器
+    // 添加二级选择器的鼠标滚轮事件监听器
   useEffect(() => {
     const scrollContainer = secondaryScrollContainerRef.current;
     const capsuleContainer = secondaryContainerRef.current;
@@ -122,10 +122,11 @@ const DoubanCustomSelector: React.FC<DoubanCustomSelectorProps> = ({
     }
   }, [handleSecondaryWheel, secondaryOptions]);
 
-  // 更新指示器位置的通用函数
+   // 更新指示器位置的通用函数
   const updateIndicatorPosition = (
     activeIndex: number,
-    containerRef: React.RefObject<HTMLDivElement>,
+    // 🟢 修复点：修改这里的类型定义，允许 null
+    containerRef: React.RefObject<HTMLDivElement | null>, 
     buttonRefs: React.MutableRefObject<(HTMLButtonElement | null)[]>,
     setIndicatorStyle: React.Dispatch<
       React.SetStateAction<{ left: number; width: number }>
@@ -200,7 +201,7 @@ const DoubanCustomSelector: React.FC<DoubanCustomSelectorProps> = ({
     }
   }, [primarySelection, primaryOptions]);
 
-  // 监听副选择器变化
+   // 监听副选择器变化
   useEffect(() => {
     if (secondaryOptions.length > 0) {
       const activeIndex = secondaryOptions.findIndex(
@@ -316,3 +317,4 @@ const DoubanCustomSelector: React.FC<DoubanCustomSelectorProps> = ({
 };
 
 export default DoubanCustomSelector;
+
