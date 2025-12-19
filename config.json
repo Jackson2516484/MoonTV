@@ -84,6 +84,18 @@
     "xiaomaomi": {
       "api": "https://zy.xmm.hk/api.php/provide/vod",
       "name": "小猫咪资源"
+    },
+    "4kzy": {
+      "api": "https://www.4kyu.com/api.php/provide/vod",
+      "name": "4K资源站"
+    },
+    "uhdzy": {
+      "api": "https://api.uhdzy.com/api.php/provide/vod",
+      "name": "UHD高清资源"
+    },
+    "js4k": {
+      "api": "https://jszyapi.com/api.php/provide/vod",
+      "name": "极速4K"
     }
   }
 }

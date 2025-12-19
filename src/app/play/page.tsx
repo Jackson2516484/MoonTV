@@ -4,7 +4,8 @@
 
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
-import { Heart } from 'lucide-react';
+import { Film, Heart } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
@@ -1486,6 +1487,14 @@ function PlayPageClient() {
               handleNextEpisode();
             },
           },
+          {
+            position: 'right',
+            html: '<i class="art-icon flex"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" x2="2.01" y1="20" y2="20"/></svg></i>',
+            tooltip: '投屏',
+            click: function () {
+              alert('正在搜索投屏设备...');
+            },
+          },
         ],
       });
 
@@ -1960,6 +1969,13 @@ function PlayPageClient() {
                 >
                   <FavoriteIcon filled={favorited} />
                 </button>
+                <Link
+                  href='/library'
+                  className='ml-3 flex-shrink-0 hover:opacity-80 transition-opacity text-gray-500 hover:text-green-600'
+                  title='视频库'
+                >
+                  <Film className='w-6 h-6' />
+                </Link>
               </h1>
 
               {/* 关键信息行 */}

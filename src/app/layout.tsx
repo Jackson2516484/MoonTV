@@ -11,6 +11,7 @@ import { getConfig } from '@/lib/config';
 
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
+import OrientationManager from '@/components/OrientationManager';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -104,6 +105,7 @@ export default async function RootLayout({
       <body
         className={`${inter.className} min-h-screen bg-white text-gray-900 dark:bg-black dark:text-gray-200`}
       >
+        <OrientationManager />
         <ThemeProvider
           attribute='class'
           defaultTheme='system'
