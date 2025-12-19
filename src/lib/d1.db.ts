@@ -1,5 +1,5 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any */
-import { getRequestContext } from '@cloudflare/next-on-pages'; // 关键引入
+import { getRequestContext } from '@cloudflare/next-on-pages';
 import { AdminConfig } from './admin.types';
 import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 
@@ -34,8 +34,9 @@ export class D1Storage implements IStorage {
   // 获取数据库绑定的正确方式
   private getDb(): D1Database {
     try {
-      // 尝试从 Cloudflare 请求上下文中获取 DB
-      const db = getRequestContext().env.DB;
+      // 🟢 修复点：使用 (as any) 绕过类型检查，解决 "Property 'DB' does not exist" 错误
+      const db = (getRequestContext().env as any).DB;
+      
       if (!db) {
         throw new Error('D1 Binding "DB" not found in request context');
       }
