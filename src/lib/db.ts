@@ -85,7 +85,11 @@ export class DbManager {
   async registerUser(u: string, p: string) { await this.storage.registerUser(u, p); }
   async verifyUser(u: string, p: string) { return this.storage.verifyUser(u, p); }
   async checkUserExist(u: string) { return this.storage.checkUserExist(u); }
-  async getAllUsers() { return this.storage.getAllUsers ? this.storage.getAllUsers() : []; }
+  
+  // 🟢 修复点：显式指定返回类型为 Promise<string[]>
+  async getAllUsers(): Promise<string[]> { 
+    return this.storage.getAllUsers ? await this.storage.getAllUsers() : []; 
+  }
 
   // 搜索历史
   async getSearchHistory(u: string) { return this.storage.getSearchHistory(u); }
