@@ -755,7 +755,7 @@ function PlayPageClient() {
                 },
               },
               {
-                default: true,
+                name: 'skip-intro-time',
                 html: '片头秒数: ' + skipConfigRef.current.intro_time + 's',
                 selector: [
                    { html: '0s', time: 0 },
@@ -767,7 +767,7 @@ function PlayPageClient() {
                    { html: '自定义', time: -1 }
                 ].map(opt => ({
                     html: opt.html,
-                    click: function(subItem: any) {
+                    click: function() {
                         let time = opt.time;
                         if (time === -1) {
                             const input = prompt('请输入片头跳过秒数:', String(skipConfigRef.current.intro_time));
@@ -775,13 +775,16 @@ function PlayPageClient() {
                             time = parseInt(input) || 0;
                         }
                         handleSkipConfigChange({ ...skipConfigRef.current, intro_time: time });
-                        item.html = '片头秒数: ' + time + 's';
-                        artPlayerRef.current.setting.update(item); 
+                        artPlayerRef.current.setting.update({
+                            name: 'skip-intro-time',
+                            html: '片头秒数: ' + time + 's',
+                        }); 
                         return true; 
                     }
                 }))
               },
               {
+                name: 'skip-outro-time',
                 html: '片尾秒数: ' + skipConfigRef.current.outro_time + 's',
                 selector: [
                    { html: '0s', time: 0 },
@@ -793,7 +796,7 @@ function PlayPageClient() {
                    { html: '自定义', time: -1 }
                 ].map(opt => ({
                     html: opt.html,
-                    click: function(subItem: any) {
+                    click: function() {
                         let time = opt.time;
                         if (time === -1) {
                             const input = prompt('请输入片尾跳过秒数:', String(skipConfigRef.current.outro_time));
@@ -801,8 +804,10 @@ function PlayPageClient() {
                             time = parseInt(input) || 0;
                         }
                         handleSkipConfigChange({ ...skipConfigRef.current, outro_time: time });
-                        item.html = '片尾秒数: ' + time + 's';
-                        artPlayerRef.current.setting.update(item);
+                        artPlayerRef.current.setting.update({
+                            name: 'skip-outro-time',
+                            html: '片尾秒数: ' + time + 's',
+                        });
                         return true;
                     }
                 }))
