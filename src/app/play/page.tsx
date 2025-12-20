@@ -155,6 +155,23 @@ function PlayPageClient() {
   }, [skipConfig]);
 
   useEffect(() => {
+    if (Capacitor.isNativePlatform() && videoTitle && currentSource) {
+      Media.init({
+        title: videoTitle,
+        artist: currentSource,
+        album: videoYear,
+        artwork: videoCover
+      }).catch(e => console.error('Media Session Init Failed', e));
+    }
+    
+    return () => { 
+        if (Capacitor.isNativePlatform()) {
+            Media.release().catch(() => {}); 
+        }
+    };
+  }, [videoTitle, currentSource, videoYear, videoCover]);
+
+  useEffect(() => {
     backgroundPlayRef.current = backgroundPlay;
   }, [backgroundPlay]);
 
@@ -808,24 +825,6 @@ function PlayPageClient() {
                  return item.html;
              }
            },
-  useEffect(() => {
-    if (Capacitor.isNativePlatform() && videoTitle && currentSource) {
-      Media.init({
-        title: videoTitle,
-        artist: currentSource,
-        album: videoYear,
-        artwork: videoCover
-      }).catch(e => console.error('Media Session Init Failed', e));
-    }
-    
-    return () => { 
-        if (Capacitor.isNativePlatform()) {
-            Media.release().catch(() => {}); 
-        }
-    };
-  }, [videoTitle, currentSource, videoYear, videoCover]);
-
-// ... inside controls ...
            {
              position: 'right',
              html: '<i class="art-icon flex" title="投屏"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" x2="2.01" y1="20" y2="20"/></svg></i>',
