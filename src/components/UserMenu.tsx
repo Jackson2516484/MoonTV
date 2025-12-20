@@ -123,7 +123,18 @@ export const UserMenu: React.FC = () => {
     } catch (error) {
       console.error('注销请求失败:', error);
     }
-    window.location.href = '/';
+    
+    // 清除本地存储
+    if (typeof window !== 'undefined') {
+      localStorage.clear(); // 清除所有本地数据
+      
+      // 清除可能残留的 Cookie (客户端辅助清除)
+      document.cookie.split(";").forEach((c) => {
+        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+      });
+    }
+    
+    window.location.href = '/login'; // 强制跳转到登录页
   };
 
   const handleAdminPanel = () => {

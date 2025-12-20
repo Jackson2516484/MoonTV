@@ -6,6 +6,7 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { Capacitor } from '@capacitor/core';
+import { Media } from '@capacitor-community/media';
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
 import { Film, Heart } from 'lucide-react';
@@ -37,40 +38,40 @@ import PageLayout from '@/components/PageLayout';
 
 const DEMO_4K_SOURCES: SearchResult[] = [
   {
-    id: '4k-interface-1',
-    title: '4K全高清测试 - Sintel',
-    source: '4k_source_vip',
-    source_name: '4K数据接口1',
-    poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Sintel_poster.jpg/800px-Sintel_poster.jpg',
-    year: '2025',
-    episodes: ['https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8'],
-    type_name: '4K专区',
-    class: 'UHD',
-    desc: '高码率 4K 测试源 - 接口 1'
+    id: 'cctv-4k-live',
+    title: 'CCTV-4K 超高清直播',
+    source: 'public_iptv_cn',
+    source_name: '央视4K',
+    poster: 'https://upload.wikimedia.org/wikipedia/zh/0/08/CCTV-4K_Ultra_HD_Channel_logo.svg',
+    year: 'Live',
+    episodes: ['http://39.134.115.163:8080/PLTV/88888888/224/3221225618/index.m3u8'],
+    type_name: '4K直播',
+    class: 'Live',
+    desc: 'CCTV-4K 超高清频道 (国内直连)'
   },
   {
-    id: '4k-interface-2',
-    title: '4K全高清测试 - Big Buck Bunny',
-    source: '4k_source_vip',
-    source_name: '4K数据接口2',
-    poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Big_buck_bunny_poster_big.jpg/800px-Big_buck_bunny_poster_big.jpg',
-    year: '2025',
-    episodes: ['https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'],
-    type_name: '4K专区',
-    class: 'UHD',
-    desc: '高码率 4K 测试源 - 接口 2'
+    id: 'bj-4k-live',
+    title: '北京卫视 4K',
+    source: 'public_iptv_cn',
+    source_name: '卫视4K',
+    poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/BTV_Beijing_Satellite_TV_Logo.svg/1200px-BTV_Beijing_Satellite_TV_Logo.svg.png',
+    year: 'Live',
+    episodes: ['http://39.135.138.60:18890/PLTV/88888888/224/3221225624/index.m3u8'],
+    type_name: '4K直播',
+    class: 'Live',
+    desc: '北京卫视 4K 超高清频道'
   },
   {
-    id: '4k-interface-3',
-    title: '4K全高清测试 - Tears of Steel',
-    source: '4k_source_vip',
-    source_name: '4K数据接口3',
-    poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Tears_of_Steel_poster.jpg/800px-Tears_of_Steel_poster.jpg',
-    year: '2025',
-    episodes: ['https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8'],
-    type_name: '4K专区',
-    class: 'UHD',
-    desc: '高码率 4K 测试源 - 接口 3'
+    id: 'doc-4k-china',
+    title: '4K演示片 - 烤鸭',
+    source: 'demo_cn',
+    source_name: '演示片',
+    poster: 'https://img9.doubanio.com/view/photo/l/public/p2508892695.jpg',
+    year: '2020',
+    episodes: ['http://clips.vorwaerts-gmbh.de/big_buck_bunny.mp4'], // 替换为国内可访问的测试源，暂用 BBB 占位，建议替换为自建 NAS 或 OSS 地址
+    type_name: '演示',
+    class: 'Demo',
+    desc: '4K 超高清演示片段'
   }
 ];
 
@@ -85,7 +86,7 @@ function PlayPageClient() {
   const [detail, setDetail] = useState<SearchResult | null>(null);
   const [favorited, setFavorited] = useState(false);
   
-  const [backgroundPlay, setBackgroundPlay] = useState(false);
+  const [backgroundPlay, setBackgroundPlay] = useState(true);
   const backgroundPlayRef = useRef(backgroundPlay);
   
   const [screenLocked, setScreenLocked] = useState(false);
@@ -735,28 +736,57 @@ function PlayPageClient() {
                 },
               },
               {
+                default: true,
                 html: '片头秒数: ' + skipConfigRef.current.intro_time + 's',
-                click: function (item: any) {
-                  const val = window.prompt('请输入跳过片头的秒数', String(skipConfigRef.current.intro_time));
-                  if (val !== null) {
-                    const time = parseInt(val) || 0;
-                    handleSkipConfigChange({ ...skipConfigRef.current, intro_time: time });
-                    item.html = '片头秒数: ' + time + 's';
-                    artPlayerRef.current.setting.update(item);
-                  }
-                },
+                selector: [
+                   { html: '0s', time: 0 },
+                   { html: '30s', time: 30 },
+                   { html: '45s', time: 45 },
+                   { html: '60s', time: 60 },
+                   { html: '90s', time: 90 },
+                   { html: '120s', time: 120 },
+                   { html: '自定义', time: -1 }
+                ].map(opt => ({
+                    html: opt.html,
+                    click: function(subItem: any) {
+                        let time = opt.time;
+                        if (time === -1) {
+                            const input = prompt('请输入片头跳过秒数:', String(skipConfigRef.current.intro_time));
+                            if (input === null) return;
+                            time = parseInt(input) || 0;
+                        }
+                        handleSkipConfigChange({ ...skipConfigRef.current, intro_time: time });
+                        item.html = '片头秒数: ' + time + 's';
+                        artPlayerRef.current.setting.update(item); 
+                        return true; 
+                    }
+                }))
               },
               {
                 html: '片尾秒数: ' + skipConfigRef.current.outro_time + 's',
-                click: function (item: any) {
-                  const val = window.prompt('请输入跳过片尾的秒数', String(skipConfigRef.current.outro_time));
-                  if (val !== null) {
-                    const time = parseInt(val) || 0;
-                    handleSkipConfigChange({ ...skipConfigRef.current, outro_time: time });
-                    item.html = '片尾秒数: ' + time + 's';
-                    artPlayerRef.current.setting.update(item);
-                  }
-                },
+                selector: [
+                   { html: '0s', time: 0 },
+                   { html: '30s', time: 30 },
+                   { html: '45s', time: 45 },
+                   { html: '60s', time: 60 },
+                   { html: '90s', time: 90 },
+                   { html: '120s', time: 120 },
+                   { html: '自定义', time: -1 }
+                ].map(opt => ({
+                    html: opt.html,
+                    click: function(subItem: any) {
+                        let time = opt.time;
+                        if (time === -1) {
+                            const input = prompt('请输入片尾跳过秒数:', String(skipConfigRef.current.outro_time));
+                            if (input === null) return;
+                            time = parseInt(input) || 0;
+                        }
+                        handleSkipConfigChange({ ...skipConfigRef.current, outro_time: time });
+                        item.html = '片尾秒数: ' + time + 's';
+                        artPlayerRef.current.setting.update(item);
+                        return true;
+                    }
+                }))
               }
             ],
           },
@@ -778,14 +808,44 @@ function PlayPageClient() {
                  return item.html;
              }
            },
+  useEffect(() => {
+    if (Capacitor.isNativePlatform() && videoTitle && currentSource) {
+      Media.init({
+        title: videoTitle,
+        artist: currentSource,
+        album: videoYear,
+        artwork: videoCover
+      }).catch(e => console.error('Media Session Init Failed', e));
+    }
+    
+    return () => { 
+        if (Capacitor.isNativePlatform()) {
+            Media.release().catch(() => {}); 
+        }
+    };
+  }, [videoTitle, currentSource, videoYear, videoCover]);
+
+// ... inside controls ...
            {
              position: 'right',
-             html: '<i class="art-icon flex"><svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"></path><line x1="2" y1="20" x2="2.01" y2="20"></line></svg></i>',
+             html: '<i class="art-icon flex" title="投屏"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" x2="2.01" y1="20" y2="20"/></svg></i>',
              click: function () {
                 const videoEl = artPlayerRef.current?.video as any;
-                if (videoEl?.remote) videoEl.remote.prompt().catch(()=>{});
-                else if (videoEl?.webkitShowPlaybackTargetPicker) videoEl.webkitShowPlaybackTargetPicker();
-                else alert('请使用系统屏幕镜像功能');
+                // 优先尝试标准 Remote Playback API (支持 Android Chrome/WebView)
+                if (videoEl?.remote) {
+                    videoEl.remote.prompt().catch(() => {
+                        // 失败回退到 Webkit (iOS)
+                        if (videoEl?.webkitShowPlaybackTargetPicker) {
+                            videoEl.webkitShowPlaybackTargetPicker();
+                        } else {
+                            alert('请使用系统控制中心的投屏/屏幕镜像功能');
+                        }
+                    });
+                } else if (videoEl?.webkitShowPlaybackTargetPicker) {
+                    videoEl.webkitShowPlaybackTargetPicker();
+                } else {
+                    alert('当前环境不支持直接唤起投屏，请使用系统屏幕镜像');
+                }
              },
            },
            {
