@@ -1,12 +1,15 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.wangzhiwei05.moontv',  // 👈 必须是这个！不能是 com.example.app
-  appName: 'MoonTv',                  // 👈 名字
+  appId: 'com.wangzhiwei05.moontv',
+  appName: 'MoonTv',
   webDir: 'out',
-  server: {
-    url: 'https://moon.wangzhiwei05.dpdns.org', // 👈 你的网址
-    cleartext: true
+  // server 配置已移除，强制加载本地 Web 资源
+  plugins: {
+    StatusBar: {
+      overlaysWebView: true,
+      style: 'DARK'
+    }
   }
 };
 

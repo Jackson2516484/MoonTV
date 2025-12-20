@@ -354,20 +354,20 @@ async function handleDatabaseOperationFailure(
     switch (dataType) {
       case 'playRecords':
         freshData = await fetchFromApi<Record<string, PlayRecord>>(
-          `/api/playrecords`
+          `https://moon.wangzhiwei05.dpdns.org/api/playrecords`
         );
         cacheManager.cachePlayRecords(freshData);
         eventName = 'playRecordsUpdated';
         break;
       case 'favorites':
         freshData = await fetchFromApi<Record<string, Favorite>>(
-          `/api/favorites`
+          `https://moon.wangzhiwei05.dpdns.org/api/favorites`
         );
         cacheManager.cacheFavorites(freshData);
         eventName = 'favoritesUpdated';
         break;
       case 'searchHistory':
-        freshData = await fetchFromApi<string[]>(`/api/searchhistory`);
+        freshData = await fetchFromApi<string[]>(`https://moon.wangzhiwei05.dpdns.org/api/searchhistory`);
         cacheManager.cacheSearchHistory(freshData);
         eventName = 'searchHistoryUpdated';
         break;
@@ -422,7 +422,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
 
     if (cachedData) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<Record<string, PlayRecord>>(`/api/playrecords`)
+      fetchFromApi<Record<string, PlayRecord>>(`https://moon.wangzhiwei05.dpdns.org/api/playrecords`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
@@ -444,7 +444,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
       // 缓存为空，直接从 API 获取并缓存
       try {
         const freshData = await fetchFromApi<Record<string, PlayRecord>>(
-          `/api/playrecords`
+          `https://moon.wangzhiwei05.dpdns.org/api/playrecords`
         );
         cacheManager.cachePlayRecords(freshData);
         return freshData;
@@ -493,7 +493,7 @@ export async function savePlayRecord(
 
     // 异步同步到数据库
     try {
-      const res = await fetch('/api/playrecords', {
+      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/playrecords', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -559,7 +559,7 @@ export async function deletePlayRecord(
     // 异步同步到数据库
     try {
       const res = await fetch(
-        `/api/playrecords?key=${encodeURIComponent(key)}`,
+        `https://moon.wangzhiwei05.dpdns.org/api/playrecords?key=${encodeURIComponent(key)}`,
         {
           method: 'DELETE',
         }
@@ -612,7 +612,7 @@ export async function getSearchHistory(): Promise<string[]> {
 
     if (cachedData) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<string[]>(`/api/searchhistory`)
+      fetchFromApi<string[]>(`https://moon.wangzhiwei05.dpdns.org/api/searchhistory`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
@@ -633,7 +633,7 @@ export async function getSearchHistory(): Promise<string[]> {
     } else {
       // 缓存为空，直接从 API 获取并缓存
       try {
-        const freshData = await fetchFromApi<string[]>(`/api/searchhistory`);
+        const freshData = await fetchFromApi<string[]>(`https://moon.wangzhiwei05.dpdns.org/api/searchhistory`);
         cacheManager.cacheSearchHistory(freshData);
         return freshData;
       } catch (err) {
@@ -684,7 +684,7 @@ export async function addSearchHistory(keyword: string): Promise<void> {
 
     // 异步同步到数据库
     try {
-      const res = await fetch('/api/searchhistory', {
+      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/searchhistory', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -738,7 +738,7 @@ export async function clearSearchHistory(): Promise<void> {
 
     // 异步同步到数据库
     try {
-      const res = await fetch(`/api/searchhistory`, {
+      const res = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/searchhistory`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error(`清空搜索历史失败: ${res.status}`);
@@ -783,7 +783,7 @@ export async function deleteSearchHistory(keyword: string): Promise<void> {
     // 异步同步到数据库
     try {
       const res = await fetch(
-        `/api/searchhistory?keyword=${encodeURIComponent(trimmed)}`,
+        `https://moon.wangzhiwei05.dpdns.org/api/searchhistory?keyword=${encodeURIComponent(trimmed)}`,
         {
           method: 'DELETE',
         }
@@ -831,7 +831,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
 
     if (cachedData) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<Record<string, Favorite>>(`/api/favorites`)
+      fetchFromApi<Record<string, Favorite>>(`https://moon.wangzhiwei05.dpdns.org/api/favorites`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
@@ -853,7 +853,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
       // 缓存为空，直接从 API 获取并缓存
       try {
         const freshData = await fetchFromApi<Record<string, Favorite>>(
-          `/api/favorites`
+          `https://moon.wangzhiwei05.dpdns.org/api/favorites`
         );
         cacheManager.cacheFavorites(freshData);
         return freshData;
@@ -902,7 +902,7 @@ export async function saveFavorite(
 
     // 异步同步到数据库
     try {
-      const res = await fetch('/api/favorites', {
+      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/favorites', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -964,7 +964,7 @@ export async function deleteFavorite(
 
     // 异步同步到数据库
     try {
-      const res = await fetch(`/api/favorites?key=${encodeURIComponent(key)}`, {
+      const res = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/favorites?key=${encodeURIComponent(key)}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error(`删除收藏失败: ${res.status}`);
@@ -1012,7 +1012,7 @@ export async function isFavorited(
 
     if (cachedFavorites) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<Record<string, Favorite>>(`/api/favorites`)
+      fetchFromApi<Record<string, Favorite>>(`https://moon.wangzhiwei05.dpdns.org/api/favorites`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedFavorites) !== JSON.stringify(freshData)) {
@@ -1034,7 +1034,7 @@ export async function isFavorited(
       // 缓存为空，直接从 API 获取并缓存
       try {
         const freshData = await fetchFromApi<Record<string, Favorite>>(
-          `/api/favorites`
+          `https://moon.wangzhiwei05.dpdns.org/api/favorites`
         );
         cacheManager.cacheFavorites(freshData);
         return !!freshData[key];
@@ -1069,7 +1069,7 @@ export async function clearAllPlayRecords(): Promise<void> {
 
     // 异步同步到数据库
     try {
-      const res = await fetch(`/api/playrecords`, {
+      const res = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/playrecords`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -1110,7 +1110,7 @@ export async function clearAllFavorites(): Promise<void> {
 
     // 异步同步到数据库
     try {
-      const res = await fetch(`/api/favorites`, {
+      const res = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/favorites`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -1155,10 +1155,10 @@ export async function refreshAllCache(): Promise<void> {
     // 并行刷新所有数据
     const [playRecords, favorites, searchHistory, skipConfigs] =
       await Promise.allSettled([
-        fetchFromApi<Record<string, PlayRecord>>(`/api/playrecords`),
-        fetchFromApi<Record<string, Favorite>>(`/api/favorites`),
-        fetchFromApi<string[]>(`/api/searchhistory`),
-        fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`),
+        fetchFromApi<Record<string, PlayRecord>>(`https://moon.wangzhiwei05.dpdns.org/api/playrecords`),
+        fetchFromApi<Record<string, Favorite>>(`https://moon.wangzhiwei05.dpdns.org/api/favorites`),
+        fetchFromApi<string[]>(`https://moon.wangzhiwei05.dpdns.org/api/searchhistory`),
+        fetchFromApi<Record<string, SkipConfig>>(`https://moon.wangzhiwei05.dpdns.org/api/skipconfigs`),
       ]);
 
     if (playRecords.status === 'fulfilled') {
@@ -1318,7 +1318,7 @@ export async function getSkipConfig(
 
     if (cachedData) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`)
+      fetchFromApi<Record<string, SkipConfig>>(`https://moon.wangzhiwei05.dpdns.org/api/skipconfigs`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
@@ -1340,7 +1340,7 @@ export async function getSkipConfig(
       // 缓存为空，直接从 API 获取并缓存
       try {
         const freshData = await fetchFromApi<Record<string, SkipConfig>>(
-          `/api/skipconfigs`
+          `https://moon.wangzhiwei05.dpdns.org/api/skipconfigs`
         );
         cacheManager.cacheSkipConfigs(freshData);
         return freshData[key] || null;
@@ -1390,7 +1390,7 @@ export async function saveSkipConfig(
 
     // 异步同步到数据库
     try {
-      const res = await fetch('/api/skipconfigs', {
+      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/skipconfigs', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1443,7 +1443,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
 
     if (cachedData) {
       // 返回缓存数据，同时后台异步更新
-      fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`)
+      fetchFromApi<Record<string, SkipConfig>>(`https://moon.wangzhiwei05.dpdns.org/api/skipconfigs`)
         .then((freshData) => {
           // 只有数据真正不同时才更新缓存
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
@@ -1465,7 +1465,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
       // 缓存为空，直接从 API 获取并缓存
       try {
         const freshData = await fetchFromApi<Record<string, SkipConfig>>(
-          `/api/skipconfigs`
+          `https://moon.wangzhiwei05.dpdns.org/api/skipconfigs`
         );
         cacheManager.cacheSkipConfigs(freshData);
         return freshData;
@@ -1514,7 +1514,7 @@ export async function deleteSkipConfig(
     // 异步同步到数据库
     try {
       const res = await fetch(
-        `/api/skipconfigs?key=${encodeURIComponent(key)}`,
+        `https://moon.wangzhiwei05.dpdns.org/api/skipconfigs?key=${encodeURIComponent(key)}`,
         {
           method: 'DELETE',
         }
