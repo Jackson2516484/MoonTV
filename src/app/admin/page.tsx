@@ -26,6 +26,7 @@ import {
   ChevronUp,
   FolderOpen,
   Settings,
+  Shield,
   Users,
   Video,
 } from 'lucide-react';
