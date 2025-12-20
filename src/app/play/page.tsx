@@ -37,40 +37,40 @@ import PageLayout from '@/components/PageLayout';
 
 const DEMO_4K_SOURCES: SearchResult[] = [
   {
-    id: 'demo-4k-1',
-    title: '4K演示 - Sintel',
-    source: '4k_demo',
-    source_name: 'CF-4K源1',
+    id: '4k-interface-1',
+    title: '4K全高清测试 - Sintel',
+    source: '4k_source_vip',
+    source_name: '4K数据接口1',
     poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Sintel_poster.jpg/800px-Sintel_poster.jpg',
-    year: '2010',
+    year: '2025',
     episodes: ['https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8'],
-    type_name: '演示',
-    class: '4K',
-    desc: 'Sintel - Blender Foundation'
+    type_name: '4K专区',
+    class: 'UHD',
+    desc: '高码率 4K 测试源 - 接口 1'
   },
   {
-    id: 'demo-4k-2',
-    title: '4K演示 - Big Buck Bunny',
-    source: '4k_demo',
-    source_name: 'CF-4K源2',
+    id: '4k-interface-2',
+    title: '4K全高清测试 - Big Buck Bunny',
+    source: '4k_source_vip',
+    source_name: '4K数据接口2',
     poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Big_buck_bunny_poster_big.jpg/800px-Big_buck_bunny_poster_big.jpg',
-    year: '2008',
+    year: '2025',
     episodes: ['https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'],
-    type_name: '演示',
-    class: '4K',
-    desc: 'Big Buck Bunny'
+    type_name: '4K专区',
+    class: 'UHD',
+    desc: '高码率 4K 测试源 - 接口 2'
   },
   {
-    id: 'demo-4k-3',
-    title: '4K演示 - Tears of Steel',
-    source: '4k_demo',
-    source_name: 'CF-4K源3',
+    id: '4k-interface-3',
+    title: '4K全高清测试 - Tears of Steel',
+    source: '4k_source_vip',
+    source_name: '4K数据接口3',
     poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Tears_of_Steel_poster.jpg/800px-Tears_of_Steel_poster.jpg',
-    year: '2012',
+    year: '2025',
     episodes: ['https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8'],
-    type_name: '演示',
-    class: '4K',
-    desc: 'Tears of Steel'
+    type_name: '4K专区',
+    class: 'UHD',
+    desc: '高码率 4K 测试源 - 接口 3'
   }
 ];
 
@@ -668,25 +668,37 @@ function PlayPageClient() {
           {
              name: 'download-video',
              html: downloadProgress ? `下载中 ${downloadProgress}` : '下载视频',
-             tooltip: '保存m3u8索引文件',
+             tooltip: '保存到本地视频库',
              click: async () => {
                  if (downloadProgress) return;
                  try {
                      if (Capacitor.isNativePlatform()) {
+                        // 检查并请求权限
+                        const perm = await Filesystem.checkPermissions();
+                        if (perm.publicStorage !== 'granted') {
+                            const req = await Filesystem.requestPermissions();
+                            if (req.publicStorage !== 'granted') {
+                                alert('未获得存储权限，无法下载');
+                                return;
+                            }
+                        }
+
                         setDownloadProgress('0%');
-                        try { await Filesystem.mkdir({ path: '视频库', directory: Directory.Documents, recursive: true }); } catch(e){}
+                        // 尝试在 External (Android/data/...) 创建 movies 目录
+                        try { await Filesystem.mkdir({ path: 'movies', directory: Directory.External, recursive: true }); } catch(e){}
+                        
                         const content = `#EXTM3U\n#EXTINF:-1,${videoTitleRef.current}\n${videoUrl}`;
                         await Filesystem.writeFile({
-                            path: `视频库/${videoTitleRef.current}.m3u8`,
+                            path: `movies/${videoTitleRef.current}.m3u8`,
                             data: content,
-                            directory: Directory.Documents,
+                            directory: Directory.External,
                             encoding: Encoding.UTF8
                         });
                         setDownloadProgress('100%');
                         setTimeout(() => setDownloadProgress(''), 2000);
-                        alert('已保存m3u8文件到 文档/视频库');
+                        alert('已保存到 Android/data/com.wangzhiwei05.moontv/files/movies');
                      } else { window.open(videoUrl, '_blank'); }
-                 } catch(e:any) { setDownloadProgress(''); alert('失败:' + e.message); }
+                 } catch(e:any) { setDownloadProgress(''); alert('下载失败:' + e.message); }
              },
           },
           {
@@ -711,12 +723,42 @@ function PlayPageClient() {
           {
             name: '跳过片头片尾',
             html: '跳过片头片尾',
-            switch: skipConfigRef.current.enable,
-            onSwitch: function (item: any) {
-              const newConfig = { ...skipConfigRef.current, enable: !item.switch };
-              handleSkipConfigChange(newConfig);
-              return !item.switch;
-            },
+            selector: [
+              {
+                default: true,
+                html: '开关: ' + (skipConfigRef.current.enable ? '开启' : '关闭'),
+                switch: skipConfigRef.current.enable,
+                onSwitch: function (item: any) {
+                  const newConfig = { ...skipConfigRef.current, enable: !item.switch };
+                  handleSkipConfigChange(newConfig);
+                  return !item.switch;
+                },
+              },
+              {
+                html: '片头秒数: ' + skipConfigRef.current.intro_time + 's',
+                click: function (item: any) {
+                  const val = window.prompt('请输入跳过片头的秒数', String(skipConfigRef.current.intro_time));
+                  if (val !== null) {
+                    const time = parseInt(val) || 0;
+                    handleSkipConfigChange({ ...skipConfigRef.current, intro_time: time });
+                    item.html = '片头秒数: ' + time + 's';
+                    artPlayerRef.current.setting.update(item);
+                  }
+                },
+              },
+              {
+                html: '片尾秒数: ' + skipConfigRef.current.outro_time + 's',
+                click: function (item: any) {
+                  const val = window.prompt('请输入跳过片尾的秒数', String(skipConfigRef.current.outro_time));
+                  if (val !== null) {
+                    const time = parseInt(val) || 0;
+                    handleSkipConfigChange({ ...skipConfigRef.current, outro_time: time });
+                    item.html = '片尾秒数: ' + time + 's';
+                    artPlayerRef.current.setting.update(item);
+                  }
+                },
+              }
+            ],
           },
         ],
         controls: [
@@ -738,7 +780,7 @@ function PlayPageClient() {
            },
            {
              position: 'right',
-             html: '<i class="art-icon flex"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><line x1="2" x2="2.01" y1="20" y2="20"/></svg></i>',
+             html: '<i class="art-icon flex"><svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"></path><line x1="2" y1="20" x2="2.01" y2="20"></line></svg></i>',
              click: function () {
                 const videoEl = artPlayerRef.current?.video as any;
                 if (videoEl?.remote) videoEl.remote.prompt().catch(()=>{});
@@ -758,8 +800,13 @@ function PlayPageClient() {
 
       artPlayerRef.current.on('fullscreen', (state: boolean) => {
          if (!Capacitor.isNativePlatform()) return;
-         if (state) { if (!screenLocked) ScreenOrientation.unlock().catch(()=>{}); } 
-         else { ScreenOrientation.unlock().catch(()=>{}); } 
+         if (state) { 
+             // 进入全屏：强制横屏
+             ScreenOrientation.lock({ orientation: 'landscape' }).catch(()=>{});
+         } else { 
+             // 退出全屏：跟随系统或竖屏
+             ScreenOrientation.unlock().catch(()=>{}); 
+         } 
       });
       
       artPlayerRef.current.on('video:canplay', () => {
@@ -792,8 +839,9 @@ function PlayPageClient() {
   if (loading) {
      return (
         <PageLayout activePath='/play'>
-            <div className='flex items-center justify-center min-h-screen bg-transparent'>
-               <div className='text-center animate-pulse'><h2 className='text-xl'>{loadingMessage}</h2></div>
+            <div className='flex flex-col items-center justify-center min-h-screen bg-transparent'>
+               <div className='animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mb-4'></div>
+               <h2 className='text-xl text-gray-800 dark:text-gray-200 animate-pulse'>{loadingMessage}</h2>
             </div>
         </PageLayout>
      );
