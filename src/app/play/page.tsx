@@ -6,7 +6,6 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { Capacitor } from '@capacitor/core';
-import { Media } from '@capacitor-community/media';
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
 import { Film, Heart } from 'lucide-react';
@@ -155,20 +154,23 @@ function PlayPageClient() {
   }, [skipConfig]);
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform() && videoTitle && currentSource) {
-      Media.init({
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator && videoTitle) {
+      // @ts-ignore
+      navigator.mediaSession.metadata = new window.MediaMetadata({
         title: videoTitle,
-        artist: currentSource,
-        album: videoYear,
-        artwork: videoCover
-      }).catch(e => console.error('Media Session Init Failed', e));
+        artist: currentSource || 'MoonTV',
+        album: videoYear || '',
+        artwork: [
+          { src: videoCover || '', sizes: '512x512', type: 'image/png' }
+        ]
+      });
+
+      // 注册通知栏/锁屏控制台的播放暂停事件
+      navigator.mediaSession.setActionHandler('play', () => artPlayerRef.current?.play());
+      navigator.mediaSession.setActionHandler('pause', () => artPlayerRef.current?.pause());
+      navigator.mediaSession.setActionHandler('seekbackward', () => { if(artPlayerRef.current) artPlayerRef.current.currentTime -= 10; });
+      navigator.mediaSession.setActionHandler('seekforward', () => { if(artPlayerRef.current) artPlayerRef.current.currentTime += 10; });
     }
-    
-    return () => { 
-        if (Capacitor.isNativePlatform()) {
-            Media.release().catch(() => {}); 
-        }
-    };
   }, [videoTitle, currentSource, videoYear, videoCover]);
 
   useEffect(() => {
