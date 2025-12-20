@@ -38,25 +38,6 @@ import PageLayout from '@/components/PageLayout';
 const DEMO_4K_SOURCES: SearchResult[] = [];
 
 function PlayPageClient() {
-// ... inside Artplayer initialization ...
-      artPlayerRef.current.on('video:timeupdate', () => {
-        const currentTime = artPlayerRef.current.currentTime;
-        const duration = artPlayerRef.current.duration;
-        const config = skipConfigRef.current;
-
-        if (config.enable) {
-          // 跳过片头
-          if (config.intro_time > 0 && currentTime < config.intro_time) {
-            artPlayerRef.current.currentTime = config.intro_time;
-            artPlayerRef.current.notice.show = `已自动跳过片头 ${config.intro_time}s`;
-          }
-          // 跳过片尾
-          if (config.outro_time > 0 && duration > 0 && currentTime > duration - config.outro_time) {
-            handleNextEpisode();
-            artPlayerRef.current.notice.show = `已自动跳过片尾，即将播放下一集`;
-          }
-        }
-      });
   const router = useRouter();
   const searchParams = useSearchParams();
 
