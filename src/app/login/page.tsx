@@ -40,7 +40,7 @@ function LoginPageClient() {
 
     try {
       setLoading(true);
-      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/login', {
+      const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -72,7 +72,7 @@ function LoginPageClient() {
 
     try {
       setLoading(true);
-      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/register', {
+      const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),

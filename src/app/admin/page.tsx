@@ -166,7 +166,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       // 先更新本地 UI
       setUserSettings((prev) => ({ ...prev, enableRegistration: value }));
 
-      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/admin/user', {
+      const res = await fetch('/api/admin/user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -258,7 +258,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     targetPassword?: string
   ) => {
     try {
-      const res = await fetch('https://moon.wangzhiwei05.dpdns.org/api/admin/user', {
+      const res = await fetch('/api/admin/user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -679,7 +679,7 @@ const VideoSourceConfig = ({
   // 通用 API 请求
   const callSourceApi = async (body: Record<string, any>) => {
     try {
-      const resp = await fetch('https://moon.wangzhiwei05.dpdns.org/api/admin/source', {
+      const resp = await fetch('/api/admin/source', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body }),
@@ -1026,7 +1026,7 @@ const CategoryConfig = ({
   // 通用 API 请求
   const callCategoryApi = async (body: Record<string, any>) => {
     try {
-      const resp = await fetch('https://moon.wangzhiwei05.dpdns.org/api/admin/category', {
+      const resp = await fetch('/api/admin/category', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...body }),
@@ -1385,7 +1385,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
   const handleSave = async () => {
     try {
       setSaving(true);
-      const resp = await fetch('https://moon.wangzhiwei05.dpdns.org/api/admin/site', {
+      const resp = await fetch('/api/admin/site', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...siteSettings }),
@@ -1696,6 +1696,7 @@ function AdminPageClient() {
     videoSource: false,
     siteConfig: false,
     categoryConfig: false,
+    systemMaintenance: false,
   });
 
   // 获取管理员配置
@@ -1706,7 +1707,7 @@ function AdminPageClient() {
         setLoading(true);
       }
 
-      const response = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/admin/config`);
+      const response = await fetch(`/api/admin/config`);
 
       if (!response.ok) {
         const data = (await response.json()) as any;
@@ -1753,7 +1754,7 @@ function AdminPageClient() {
     if (!isConfirmed) return;
 
     try {
-      const response = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/admin/reset`);
+      const response = await fetch(`/api/admin/reset`);
       if (!response.ok) {
         throw new Error(`重置失败: ${response.status}`);
       }
@@ -1867,12 +1868,123 @@ function AdminPageClient() {
             >
               <CategoryConfig config={config} refreshConfig={fetchConfig} />
             </CollapsibleTab>
+
+            {/* 系统维护标签 (仅站长可见) */}
+            {role === 'owner' && (
+              <CollapsibleTab
+                title='系统维护'
+                icon={
+                  <Shield size={20} className='text-gray-600 dark:text-gray-400' />
+                }
+                isExpanded={expandedTabs.systemMaintenance}
+                onToggle={() => toggleTab('systemMaintenance')}
+              >
+                <SystemMaintenance role={role} />
+              </CollapsibleTab>
+            )}
           </div>
         </div>
       </div>
     </PageLayout>
   );
 }
+
+// 系统维护组件
+const SystemMaintenance = ({ role }: { role: string | null }) => {
+  if (role !== 'owner') return null;
+
+  const handleClean = async (type: 'history' | 'favorites' | 'all') => {
+    const texts = {
+      history: '播放记录和搜索历史',
+      favorites: '所有用户收藏',
+      all: '全站所有用户数据（不包括用户账号）'
+    };
+    
+    const { isConfirmed } = await Swal.fire({
+      title: '确认清理',
+      text: `确定要清理${texts[type]}吗？此操作不可恢复！`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '确定清理',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#dc2626',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      const res = await fetch('/api/admin/clean', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+      });
+
+      if (!res.ok) throw new Error('操作失败');
+      showSuccess('清理成功');
+    } catch (err) {
+      showError('清理失败，请检查后端支持');
+    }
+  };
+
+  const handleResetConfig = async () => {
+    const { isConfirmed } = await Swal.fire({
+      title: '重置系统配置',
+      text: '确定要将所有站点配置、视频源和分类恢复到初始状态吗？用户数据将被保留。',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '确定重置',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#dc2626',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      const res = await fetch('/api/admin/reset');
+      if (!res.ok) throw new Error('重置失败');
+      showSuccess('配置已重置，正在刷新...');
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      showError('操作失败');
+    }
+  };
+
+  return (
+    <div className='space-y-6'>
+      <div className='bg-red-50 dark:bg-red-900/10 p-4 rounded-lg border border-red-200 dark:border-red-900/30'>
+        <h4 className='text-red-800 dark:text-red-400 font-bold mb-4 flex items-center gap-2'>
+          <Shield size={18} /> 危险操作区 (仅站长可见)
+        </h4>
+        <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
+          <button
+            onClick={() => handleClean('history')}
+            className='px-4 py-3 bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 text-red-600 rounded-xl hover:bg-red-50 transition-colors text-sm font-medium'
+          >
+            清理全站播放记录
+          </button>
+          <button
+            onClick={() => handleClean('favorites')}
+            className='px-4 py-3 bg-white dark:bg-gray-800 border border-red-200 dark:border-red-800 text-red-600 rounded-xl hover:bg-red-50 transition-colors text-sm font-medium'
+          >
+            清理全站收藏夹
+          </button>
+          <button
+            onClick={handleResetConfig}
+            className='px-4 py-3 bg-white dark:bg-gray-800 border border-orange-200 dark:border-orange-800 text-orange-600 rounded-xl hover:bg-orange-50 transition-colors text-sm font-medium'
+          >
+            重置系统配置
+          </button>
+          <button
+            onClick={() => handleClean('all')}
+            className='px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors text-sm font-medium shadow-md'
+          >
+            清理全站用户内容 (极危险)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function AdminPage() {
   return (

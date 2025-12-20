@@ -116,7 +116,7 @@ export const UserMenu: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch('https://moon.wangzhiwei05.dpdns.org/api/logout', {
+      await fetch('/api/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -173,7 +173,7 @@ export const UserMenu: React.FC = () => {
     setPasswordLoading(true);
 
     try {
-      const response = await fetch('https://moon.wangzhiwei05.dpdns.org/api/change-password', {
+      const response = await fetch('/api/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

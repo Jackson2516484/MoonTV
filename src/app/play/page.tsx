@@ -35,46 +35,28 @@ import PageLayout from '@/components/PageLayout';
 // Removed global declaration to avoid conflicts
 // Use type assertion (video as any).remote instead
 
-const DEMO_4K_SOURCES: SearchResult[] = [
-  {
-    id: 'cctv-4k-live',
-    title: 'CCTV-4K 超高清直播',
-    source: 'public_iptv_cn',
-    source_name: '央视4K',
-    poster: 'https://upload.wikimedia.org/wikipedia/zh/0/08/CCTV-4K_Ultra_HD_Channel_logo.svg',
-    year: 'Live',
-    episodes: ['http://39.134.115.163:8080/PLTV/88888888/224/3221225618/index.m3u8'],
-    type_name: '4K直播',
-    class: 'Live',
-    desc: 'CCTV-4K 超高清频道 (国内直连)'
-  },
-  {
-    id: 'bj-4k-live',
-    title: '北京卫视 4K',
-    source: 'public_iptv_cn',
-    source_name: '卫视4K',
-    poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/BTV_Beijing_Satellite_TV_Logo.svg/1200px-BTV_Beijing_Satellite_TV_Logo.svg.png',
-    year: 'Live',
-    episodes: ['http://39.135.138.60:18890/PLTV/88888888/224/3221225624/index.m3u8'],
-    type_name: '4K直播',
-    class: 'Live',
-    desc: '北京卫视 4K 超高清频道'
-  },
-  {
-    id: 'doc-4k-china',
-    title: '4K演示片 - 烤鸭',
-    source: 'demo_cn',
-    source_name: '演示片',
-    poster: 'https://img9.doubanio.com/view/photo/l/public/p2508892695.jpg',
-    year: '2020',
-    episodes: ['http://clips.vorwaerts-gmbh.de/big_buck_bunny.mp4'], // 替换为国内可访问的测试源，暂用 BBB 占位，建议替换为自建 NAS 或 OSS 地址
-    type_name: '演示',
-    class: 'Demo',
-    desc: '4K 超高清演示片段'
-  }
-];
+const DEMO_4K_SOURCES: SearchResult[] = [];
 
 function PlayPageClient() {
+// ... inside Artplayer initialization ...
+      artPlayerRef.current.on('video:timeupdate', () => {
+        const currentTime = artPlayerRef.current.currentTime;
+        const duration = artPlayerRef.current.duration;
+        const config = skipConfigRef.current;
+
+        if (config.enable) {
+          // 跳过片头
+          if (config.intro_time > 0 && currentTime < config.intro_time) {
+            artPlayerRef.current.currentTime = config.intro_time;
+            artPlayerRef.current.notice.show = `已自动跳过片头 ${config.intro_time}s`;
+          }
+          // 跳过片尾
+          if (config.outro_time > 0 && duration > 0 && currentTime > duration - config.outro_time) {
+            handleNextEpisode();
+            artPlayerRef.current.notice.show = `已自动跳过片尾，即将播放下一集`;
+          }
+        }
+      });
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -390,7 +372,7 @@ function PlayPageClient() {
         return demo ? [demo] : [];
       }
       try {
-        const res = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/detail?source=${source}&id=${id}`);
+        const res = await fetch(`/api/detail?source=${source}&id=${id}`);
         if (!res.ok) throw new Error('Failed');
         const data = await res.json();
         return [data];
@@ -399,7 +381,7 @@ function PlayPageClient() {
 
     const fetchSourcesData = async (query: string): Promise<SearchResult[]> => {
       try {
-        const res = await fetch(`https://moon.wangzhiwei05.dpdns.org/api/search?q=${encodeURIComponent(query.trim())}`);
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
         if (!res.ok) throw new Error('Failed');
         const data = await res.json();
         let results = data.results.filter((r: any) => 
@@ -758,9 +740,9 @@ function PlayPageClient() {
                 name: 'skip-intro-time',
                 html: '片头秒数: ' + skipConfigRef.current.intro_time + 's',
                 selector: [
-                   { html: '0s', time: 0 },
+                   { html: '关闭', time: 0 },
+                   { html: '15s', time: 15 },
                    { html: '30s', time: 30 },
-                   { html: '45s', time: 45 },
                    { html: '60s', time: 60 },
                    { html: '90s', time: 90 },
                    { html: '120s', time: 120 },
@@ -770,9 +752,9 @@ function PlayPageClient() {
                     click: function() {
                         let time = opt.time;
                         if (time === -1) {
-                            const input = prompt('请输入片头跳过秒数:', String(skipConfigRef.current.intro_time));
-                            if (input === null) return;
-                            time = parseInt(input) || 0;
+                            const val = window.prompt('请输入片头跳过秒数:', String(skipConfigRef.current.intro_time));
+                            if (val === null) return true;
+                            time = parseInt(val) || 0;
                         }
                         handleSkipConfigChange({ ...skipConfigRef.current, intro_time: time });
                         artPlayerRef.current.setting.update({
@@ -787,21 +769,19 @@ function PlayPageClient() {
                 name: 'skip-outro-time',
                 html: '片尾秒数: ' + skipConfigRef.current.outro_time + 's',
                 selector: [
-                   { html: '0s', time: 0 },
+                   { html: '关闭', time: 0 },
                    { html: '30s', time: 30 },
-                   { html: '45s', time: 45 },
                    { html: '60s', time: 60 },
                    { html: '90s', time: 90 },
-                   { html: '120s', time: 120 },
                    { html: '自定义', time: -1 }
                 ].map(opt => ({
                     html: opt.html,
                     click: function() {
                         let time = opt.time;
                         if (time === -1) {
-                            const input = prompt('请输入片尾跳过秒数:', String(skipConfigRef.current.outro_time));
-                            if (input === null) return;
-                            time = parseInt(input) || 0;
+                            const val = window.prompt('请输入片尾跳过秒数:', String(skipConfigRef.current.outro_time));
+                            if (val === null) return true;
+                            time = parseInt(val) || 0;
                         }
                         handleSkipConfigChange({ ...skipConfigRef.current, outro_time: time });
                         artPlayerRef.current.setting.update({
@@ -892,6 +872,23 @@ function PlayPageClient() {
       artPlayerRef.current.on('video:ended', () => {
           if (detailRef.current && currentEpisodeIndexRef.current < detailRef.current.episodes.length - 1) {
               setTimeout(() => setCurrentEpisodeIndex(currentEpisodeIndexRef.current + 1), 1000);
+          }
+      });
+
+      artPlayerRef.current.on('video:timeupdate', () => {
+          const player = artPlayerRef.current;
+          const config = skipConfigRef.current;
+          if (player && config.enable) {
+              const currentTime = player.currentTime;
+              const duration = player.duration;
+              if (config.intro_time > 0 && currentTime < config.intro_time) {
+                  player.currentTime = config.intro_time;
+                  player.notice.show = `已跳过片头 ${config.intro_time}s`;
+              }
+              if (config.outro_time > 0 && duration > 0 && currentTime > duration - config.outro_time) {
+                  player.notice.show = '片尾已跳过，播放下一集';
+                  handleNextEpisode();
+              }
           }
       });
       
