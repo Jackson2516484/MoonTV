@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { BackButton } from './BackButton';
 import { useSite } from './SiteProvider';
 import { ThemeToggle } from './ThemeToggle';
-import { UserMenu } from './UserMenu';
+import UserMenu from './UserMenu';
 
 interface MobileHeaderProps {
   showBackButton?: boolean;
