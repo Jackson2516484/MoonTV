@@ -5,18 +5,25 @@ import {
   LogOut,
   Settings,
   User,
+  ShieldCheck,
+  KeyRound
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Fragment, useEffect, useState } from 'react';
 
 import { getAuthInfoFromBrowserCookie, removeAuthInfo } from '@/lib/auth';
 import { useLanguage } from '@/contexts/LanguageContext';
-import LanguageSelector from './LanguageSelector';
+import { CURRENT_VERSION } from '@/lib/version';
+import LocalSettingsModal from './LocalSettingsModal';
 
 export default function UserMenu() {
   const { t } = useLanguage();
   const [username, setUsername] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const router = useRouter();
+
+  // 是否为管理员 (有用户名即视为管理员/站长，因为只有他们能登录)
+  const isAdmin = !!username;
 
   useEffect(() => {
     const info = getAuthInfoFromBrowserCookie();
@@ -33,69 +40,126 @@ export default function UserMenu() {
   };
 
   return (
-    <Menu as='div' className='relative inline-block text-left'>
-      <div>
-        <Menu.Button className='flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500'>
-          <User className='w-5 h-5 text-gray-600 dark:text-gray-300' />
-        </Menu.Button>
-      </div>
-      <Transition
-        as={Fragment}
-        enter='transition ease-out duration-100'
-        enterFrom='transform opacity-0 scale-95'
-        enterTo='transform opacity-100 scale-100'
-        leave='transition ease-in duration-75'
-        leaveFrom='transform opacity-100 scale-100'
-        leaveTo='transform opacity-0 scale-95'
-      >
-        <Menu.Items className='absolute right-0 mt-2 w-56 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50'>
-          <div className='px-4 py-3'>
-            <p className='text-sm text-gray-500 dark:text-gray-400'>
-              {username ? `Hi, ${username}` : t('guestAccess')}
-            </p>
-          </div>
-          
-          <div className='px-1 py-1'>
-             <LanguageSelector />
-          </div>
+    <>
+      <LocalSettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+      />
+      
+      <Menu as='div' className='relative inline-block text-left'>
+        <div>
+          <Menu.Button className='flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500'>
+            <User className='w-5 h-5 text-gray-600 dark:text-gray-300' />
+          </Menu.Button>
+        </div>
+        <Transition
+          as={Fragment}
+          enter='transition ease-out duration-100'
+          enterFrom='transform opacity-0 scale-95'
+          enterTo='transform opacity-100 scale-100'
+          leave='transition ease-in duration-75'
+          leaveFrom='transform opacity-100 scale-100'
+          leaveTo='transform opacity-0 scale-95'
+        >
+          <Menu.Items className='absolute right-0 mt-2 w-64 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50'>
+            {/* Header */}
+            <div className='px-4 py-3'>
+              <p className='text-sm font-medium text-gray-900 dark:text-white'>
+                {isAdmin ? `Hi, ${username}` : t('guestAccess')}
+              </p>
+              {isAdmin && (
+                <p className='text-xs text-green-600 dark:text-green-400 mt-0.5'>
+                  管理员
+                </p>
+              )}
+            </div>
+            
+            {/* Menu Items */}
+            <div className='px-1 py-1'>
+              {/* Local Settings (Everyone) */}
+              <Menu.Item>
+                {({ active }) => (
+                  <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className={`${
+                      active
+                        ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                        : 'text-gray-700 dark:text-gray-200'
+                    } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                  >
+                    <Settings className='mr-2 h-4 w-4' />
+                    本地设置
+                  </button>
+                )}
+              </Menu.Item>
 
-          <div className='px-1 py-1'>
-            {username ? (
-              <Menu.Item>
-                {({ active }) => (
-                  <button
-                    onClick={handleLogout}
-                    className={`${
-                      active
-                        ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
-                        : 'text-gray-700 dark:text-gray-200'
-                    } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
-                  >
-                    <LogOut className='mr-2 h-4 w-4' />
-                    {t('logout')}
-                  </button>
-                )}
-              </Menu.Item>
-            ) : (
-              <Menu.Item>
-                {({ active }) => (
-                  <button
-                    onClick={() => router.push('/login')}
-                    className={`${
-                      active
-                        ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
-                        : 'text-gray-700 dark:text-gray-200'
-                    } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
-                  >
-                    <User className='mr-2 h-4 w-4' />
-                    {t('login')}
-                  </button>
-                )}
-              </Menu.Item>
+              {/* Admin Only Items */}
+              {isAdmin && (
+                <>
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        onClick={() => router.push('/admin')}
+                        className={`${
+                          active
+                            ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                            : 'text-gray-700 dark:text-gray-200'
+                        } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                      >
+                        <ShieldCheck className='mr-2 h-4 w-4' />
+                        管理面板
+                      </button>
+                    )}
+                  </Menu.Item>
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        onClick={() => router.push('/admin/password')} 
+                        className={`${
+                          active
+                            ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                            : 'text-gray-700 dark:text-gray-200'
+                        } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                      >
+                        <KeyRound className='mr-2 h-4 w-4' />
+                        修改密码
+                      </button>
+                    )}
+                  </Menu.Item>
+                </>
+              )}
+            </div>
+
+            {/* Logout (Admin Only) */}
+            {isAdmin && (
+              <div className='px-1 py-1'>
+                <Menu.Item>
+                  {({ active }) => (
+                    <button
+                      onClick={handleLogout}
+                      className={`${
+                        active
+                          ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+                          : 'text-gray-700 dark:text-gray-200'
+                      } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                    >
+                      <LogOut className='mr-2 h-4 w-4' />
+                      {t('logout')}
+                    </button>
+                  )}
+                </Menu.Item>
+              </div>
             )}
-          </div>
-        </Menu.Items>
-      </Transition>
-    </Menu>
+
+            {/* Version Footer (Everyone) */}
+            <div className='px-4 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl'>
+              <p className='text-xs text-center text-gray-400 dark:text-gray-500 font-mono'>
+                v{CURRENT_VERSION}
+              </p>
+            </div>
+          </Menu.Items>
+        </Transition>
+      </Menu>
+    </>
   );
 }

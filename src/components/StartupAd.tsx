@@ -45,7 +45,7 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          if (!showWebView) { // Only auto-finish if not viewing the ad
+          if (!showWebView) { 
              onFinish();
           }
           return 0;
@@ -63,7 +63,7 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
 
   const handleWebViewClose = () => {
     setShowWebView(false);
-    onFinish(); // Close ad completely after returning from webview
+    onFinish(); 
   };
 
   if (showWebView) {
@@ -91,12 +91,13 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
 
   return (
     <div className="fixed inset-0 z-[9000] bg-black flex items-center justify-center">
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full bg-black flex items-center justify-center">
+        {/* 使用 object-contain 确保完整显示，bg-black 填充留白 */}
         <Image
           src={AD_IMAGES[adIndex]}
           alt="Startup Ad"
           fill
-          className="object-cover"
+          className="object-contain"
           onClick={handleAdClick}
           priority
         />
@@ -106,7 +107,7 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
             e.stopPropagation();
             onFinish();
           }}
-          className="absolute top-4 right-4 z-[9001] bg-black/50 text-white px-3 py-1 rounded-full text-sm backdrop-blur-md safe-area-top-margin"
+          className="absolute top-4 right-4 z-[9001] bg-black/50 text-white px-3 py-1 rounded-full text-sm backdrop-blur-md safe-area-top-margin border border-white/20"
         >
           {t('skipAd')} {countdown}s
         </button>
