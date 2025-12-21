@@ -16,48 +16,51 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-scale-in">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
+      <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-scale-in border border-white/20">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50">
+          <h3 className="text-xl font-black text-gray-900 dark:text-white">
             本地设置
           </h3>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
           >
-            <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <X className="w-6 h-6 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
+        <div className="p-6 space-y-8">
           {/* Language */}
-          <div className="space-y-3">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <div className="space-y-4">
+            <label className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               {t('language')}
             </label>
-            <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-2">
                <LanguageSelector />
             </div>
           </div>
 
           {/* Theme */}
-          <div className="space-y-3">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              主题
+          <div className="space-y-4">
+            <label className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              外观主题
             </label>
-            <div className="flex justify-start">
+            <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-4">
+               <span className="text-sm font-medium dark:text-gray-200">切换模式</span>
                <ThemeToggle />
             </div>
           </div>
 
           {/* Note */}
-          <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-            <p className="text-xs text-center text-gray-400 dark:text-gray-500">
-              这些设置保存在应用中
-            </p>
+          <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
+            <div className="bg-green-50 dark:bg-green-900/10 rounded-xl p-4 border border-green-100 dark:border-green-900/20">
+              <p className="text-xs text-center text-green-700 dark:text-green-400 font-medium">
+                这些设置保存在应用中
+              </p>
+            </div>
           </div>
         </div>
       </div>

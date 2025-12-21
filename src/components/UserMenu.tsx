@@ -6,14 +6,15 @@ import {
   Settings,
   User,
   ShieldCheck,
-  KeyRound
+  KeyRound,
+  Globe
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Fragment, useEffect, useState } from 'react';
 
 import { getAuthInfoFromBrowserCookie, removeAuthInfo } from '@/lib/auth';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { CURRENT_VERSION } from '@/lib/version';
+import { VersionDisplay } from '@/components/VersionDisplay';
 import LocalSettingsModal from './LocalSettingsModal';
 
 export default function UserMenu() {
@@ -22,7 +23,7 @@ export default function UserMenu() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const router = useRouter();
 
-  // 是否为管理员 (有用户名即视为管理员/站长，因为只有他们能登录)
+  // 是否为管理员
   const isAdmin = !!username;
 
   useEffect(() => {
@@ -36,7 +37,8 @@ export default function UserMenu() {
     removeAuthInfo();
     setUsername(null);
     router.refresh();
-    router.push('/login');
+    router.push('/');
+    window.location.reload(); // 强制刷新状态
   };
 
   return (
@@ -48,7 +50,7 @@ export default function UserMenu() {
       
       <Menu as='div' className='relative inline-block text-left'>
         <div>
-          <Menu.Button className='flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500'>
+          <Menu.Button className='flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 z-[1000]'>
             <User className='w-5 h-5 text-gray-600 dark:text-gray-300' />
           </Menu.Button>
         </div>
@@ -61,22 +63,20 @@ export default function UserMenu() {
           leaveFrom='transform opacity-100 scale-100'
           leaveTo='transform opacity-0 scale-95'
         >
-          <Menu.Items className='absolute right-0 mt-2 w-64 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50'>
-            {/* Header */}
-            <div className='px-4 py-3'>
-              <p className='text-sm font-medium text-gray-900 dark:text-white'>
-                {isAdmin ? `Hi, ${username}` : t('guestAccess')}
+          <Menu.Items className='absolute right-0 mt-2 w-64 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-2xl bg-white dark:bg-gray-900 shadow-2xl ring-1 ring-black ring-opacity-5 focus:outline-none z-[2000]'>
+            {/* 用户头 */}
+            <div className='px-4 py-4 bg-gray-50/50 dark:bg-gray-800/30 rounded-t-2xl'>
+              <p className='text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider'>
+                {isAdmin ? '管理员账户' : '访客模式'}
               </p>
-              {isAdmin && (
-                <p className='text-xs text-green-600 dark:text-green-400 mt-0.5'>
-                  管理员
-                </p>
-              )}
+              <p className='text-base font-bold text-gray-900 dark:text-white mt-1 truncate'>
+                {isAdmin ? username : t('guestAccess')}
+              </p>
             </div>
             
-            {/* Menu Items */}
-            <div className='px-1 py-1'>
-              {/* Local Settings (Everyone) */}
+            {/* 主要功能区 */}
+            <div className='p-1.5'>
+              {/* 本地设置 (所有人) */}
               <Menu.Item>
                 {({ active }) => (
                   <button
@@ -85,15 +85,15 @@ export default function UserMenu() {
                       active
                         ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
                         : 'text-gray-700 dark:text-gray-200'
-                    } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                    } group flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all`}
                   >
-                    <Settings className='mr-2 h-4 w-4' />
+                    <Settings className='mr-3 h-5 w-5 text-gray-400 group-hover:text-green-500' />
                     本地设置
                   </button>
                 )}
               </Menu.Item>
 
-              {/* Admin Only Items */}
+              {/* 管理员专有区 */}
               {isAdmin && (
                 <>
                   <Menu.Item>
@@ -104,9 +104,9 @@ export default function UserMenu() {
                           active
                             ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
                             : 'text-gray-700 dark:text-gray-200'
-                        } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                        } group flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all`}
                       >
-                        <ShieldCheck className='mr-2 h-4 w-4' />
+                        <ShieldCheck className='mr-3 h-5 w-5 text-gray-400 group-hover:text-green-500' />
                         管理面板
                       </button>
                     )}
@@ -119,9 +119,9 @@ export default function UserMenu() {
                           active
                             ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
                             : 'text-gray-700 dark:text-gray-200'
-                        } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                        } group flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all`}
                       >
-                        <KeyRound className='mr-2 h-4 w-4' />
+                        <KeyRound className='mr-3 h-5 w-5 text-gray-400 group-hover:text-green-500' />
                         修改密码
                       </button>
                     )}
@@ -130,9 +130,9 @@ export default function UserMenu() {
               )}
             </div>
 
-            {/* Logout (Admin Only) */}
+            {/* 登出区 (仅管理员) */}
             {isAdmin && (
-              <div className='px-1 py-1'>
+              <div className='p-1.5'>
                 <Menu.Item>
                   {({ active }) => (
                     <button
@@ -141,9 +141,9 @@ export default function UserMenu() {
                         active
                           ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
                           : 'text-gray-700 dark:text-gray-200'
-                      } group flex w-full items-center rounded-lg px-2 py-2 text-sm transition-colors`}
+                      } group flex w-full items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all`}
                     >
-                      <LogOut className='mr-2 h-4 w-4' />
+                      <LogOut className='mr-3 h-5 w-5 text-gray-400 group-hover:text-red-500' />
                       {t('logout')}
                     </button>
                   )}
@@ -151,11 +151,9 @@ export default function UserMenu() {
               </div>
             )}
 
-            {/* Version Footer (Everyone) */}
-            <div className='px-4 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl'>
-              <p className='text-xs text-center text-gray-400 dark:text-gray-500 font-mono'>
-                v{CURRENT_VERSION}
-              </p>
+            {/* 版本展示 (所有人 - 点击可支持收款码) */}
+            <div className='p-2 bg-gray-50/50 dark:bg-gray-800/50 rounded-b-2xl'>
+               <VersionDisplay className="w-full flex items-center justify-center gap-2 py-2 text-[10px] font-mono text-gray-400 dark:text-gray-500 hover:text-green-500 transition-colors cursor-pointer" />
             </div>
           </Menu.Items>
         </Transition>

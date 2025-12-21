@@ -12,21 +12,21 @@ const PLANS = [
     image: '/ads/ad1.jpg',
     url: 'https://wx.51haoka.cc/order/index.php?uid=cU40V2t2aGlvZFk9&pid=2018',
     key: 'plan1' as const,
-    desc: '超大流量，极速体验。月租低至19元，包含100G通用流量+30G定向流量。首月免月租，激活即送话费。',
+    desc: '超大流量，极速体验。月租低至19元，包含100G通用流量+30G定向流量（30G流量是参加活动领取）。首月免月租，激活即送话费。',
   },
   {
     id: 2,
     image: '/ads/ad2.jpg',
     url: 'https://wx.51haoka.cc/order/index.php?uid=cU40V2t2aGlvZFk9&pid=2017',
     key: 'plan2' as const,
-    desc: '性价比之王。29元/月，畅享155G全通用流量，不限速，不虚量。支持5G网络，全国通用，无漫游费。',
+    desc: '性价比之王。24元/月，畅享150G全通用流量+30G（参加活动领取），不限速，不虚量。支持5G网络，全国通用。',
   },
   {
     id: 3,
     image: '/ads/ad3.jpg',
     url: 'https://wx.51haoka.cc/order/index?uid=cU40V2t2aGlvZFk9&pid=1982',
     key: 'plan3' as const,
-    desc: '长期套餐首选。39元/月，200G超大流量+100分钟通话。自动续约，长期有效，适合重度流量用户。',
+    desc: '长期套餐首选。38元/月，360G通用流量+30G定向流量（定向：学习强国、直播中国、芒果TV、百视TV）。自动续约，长期有效，无语音通话时长。',
   },
 ];
 
@@ -37,7 +37,7 @@ export default function WatchArtifact() {
   const handleDetails = (plan: typeof PLANS[0]) => {
     Swal.fire({
       title: t(plan.key),
-      text: plan.desc, // In a real app, this should also be translated
+      text: plan.desc,
       icon: 'info',
       confirmButtonText: t('confirm'),
       confirmButtonColor: '#22c55e',
