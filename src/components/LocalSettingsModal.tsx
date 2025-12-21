@@ -1,9 +1,8 @@
 'use client';
 
+import { X } from 'lucide-react';
 import LanguageSelector from './LanguageSelector';
-import { ThemeToggle } from './ThemeToggle';
 import { useLanguage } from '@/contexts/LanguageContext';
-import BottomSheet from './BottomSheet';
 
 interface LocalSettingsModalProps {
   isOpen: boolean;
@@ -13,43 +12,45 @@ interface LocalSettingsModalProps {
 export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsModalProps) {
   const { t } = useLanguage();
 
+  if (!isOpen) return null;
+
   return (
-    <BottomSheet
-      isOpen={isOpen}
-      onClose={onClose}
-      title="本地设置"
+    <div 
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in safe-area-inset"
+      onClick={onClose}
     >
-      <div className="space-y-8 pb-6">
-        {/* Language */}
-        <div className="space-y-4">
-          <label className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
+      <div 
+        className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm shadow-2xl overflow-y-auto animate-scale-in border border-white/10 relative"
+        style={{
+          maxHeight: '85vh',
+          maxWidth: '90vw'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 backdrop-blur-md sticky top-0 z-10">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
             {t('language')}
-          </label>
-          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-2">
-             <LanguageSelector />
-          </div>
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </button>
         </div>
 
-        {/* Theme */}
-        <div className="space-y-4">
-          <label className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
-            外观主题
-          </label>
-          <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 rounded-2xl p-4">
-             <span className="text-sm font-medium text-gray-900 dark:text-gray-200">切换模式</span>
-             <ThemeToggle />
-          </div>
-        </div>
-
-        {/* Note */}
-        <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-          <div className="bg-green-50 dark:bg-green-900/10 rounded-xl p-4 border border-green-100 dark:border-green-900/20">
-            <p className="text-xs text-center text-green-700 dark:text-green-400 font-medium">
-              这些设置保存在应用中
-            </p>
-          </div>
+        {/* Content */}
+        <div className="p-6">
+           <LanguageSelector />
+           
+           <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+              <p className="text-xs text-center text-gray-400 dark:text-gray-500">
+                设置将保存在应用中
+              </p>
+           </div>
         </div>
       </div>
-    </BottomSheet>
+    </div>
   );
 }

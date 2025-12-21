@@ -28,19 +28,16 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
   const [showWebView, setShowWebView] = useState(false);
 
   useEffect(() => {
-    // Randomly select an ad, but try to be different from last time
+    // 随机选择广告，尽量不重复
     const lastAdIndex = parseInt(localStorage.getItem('last_ad_index') || '-1');
     let newIndex = Math.floor(Math.random() * AD_IMAGES.length);
-    
-    // Simple logic to avoid repeat if possible
     if (AD_IMAGES.length > 1 && newIndex === lastAdIndex) {
       newIndex = (newIndex + 1) % AD_IMAGES.length;
     }
-    
     setAdIndex(newIndex);
     localStorage.setItem('last_ad_index', newIndex.toString());
 
-    // Countdown timer
+    // 倒计时
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -66,38 +63,36 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
     onFinish(); 
   };
 
+  // 办理页面（WebView）- 全屏覆盖
   if (showWebView) {
     return (
-      <div className="fixed inset-0 z-[9999] bg-white dark:bg-black flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-800 bg-white/90 dark:bg-gray-900/90 backdrop-blur safe-area-top">
-          <h3 className="font-bold text-lg">{t('details')}</h3>
-          <button 
-            onClick={handleWebViewClose}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-        <div className="flex-1 w-full h-full relative">
-           <iframe 
-             src={PLAN_URLS[adIndex]} 
-             className="w-full h-full border-0"
-             sandbox="allow-same-origin allow-scripts allow-forms"
-           />
-        </div>
+      <div className="fixed inset-0 z-[20000] bg-white flex flex-col">
+        {/* 顶部悬浮关闭按钮 */}
+        <button 
+          onClick={handleWebViewClose}
+          className="absolute top-4 right-4 z-[20001] p-2 bg-black/50 text-white rounded-full backdrop-blur-md safe-area-top-margin"
+        >
+          <X className="w-6 h-6" />
+        </button>
+        
+        <iframe 
+          src={PLAN_URLS[adIndex]} 
+          className="w-full h-full border-0"
+          sandbox="allow-same-origin allow-scripts allow-forms"
+        />
       </div>
     );
   }
 
+  // 广告展示 - 全屏覆盖，无黑边
   return (
-    <div className="fixed inset-0 z-[9000] bg-black flex items-center justify-center">
-      <div className="relative w-full h-full bg-black flex items-center justify-center">
-        {/* 使用 object-contain 确保完整显示，bg-black 填充留白 */}
+    <div className="fixed inset-0 z-[20000] bg-black">
+      <div className="relative w-full h-full">
         <Image
           src={AD_IMAGES[adIndex]}
           alt="Startup Ad"
           fill
-          className="object-contain"
+          className="object-cover" // 确保填满屏幕，无黑边
           onClick={handleAdClick}
           priority
         />
@@ -107,7 +102,7 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
             e.stopPropagation();
             onFinish();
           }}
-          className="absolute top-4 right-4 z-[9001] bg-black/50 text-white px-3 py-1 rounded-full text-sm backdrop-blur-md safe-area-top-margin border border-white/20"
+          className="absolute top-4 right-4 z-[20001] bg-black/40 text-white px-3 py-1.5 rounded-full text-sm backdrop-blur-md safe-area-top-margin border border-white/20"
         >
           {t('skipAd')} {countdown}s
         </button>

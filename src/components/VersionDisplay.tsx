@@ -1,12 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 'use client';
 
-import { AlertCircle, CheckCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, X } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
-import BottomSheet from './BottomSheet';
 
 export function VersionDisplay({ className }: { className?: string }) {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -63,46 +62,68 @@ export function VersionDisplay({ className }: { className?: string }) {
         )}
       </button>
 
-      {/* 支付/捐赠弹窗 - 使用 BottomSheet */}
-      <BottomSheet
-        isOpen={isDonateModalOpen}
-        onClose={() => setIsDonateModalOpen(false)}
-        title="感谢支持"
-      >
-        <div className='flex flex-col items-center gap-8 pb-8'>
-          <div className='flex flex-row gap-6 w-full justify-center'>
-            <div className='flex flex-col items-center gap-3 flex-1 min-w-[120px]'>
-              <div className="relative aspect-square w-full rounded-2xl overflow-hidden shadow-lg bg-gray-100 border border-gray-200">
-                <Image
-                  src='/wechat_donate.jpg'
-                  alt='WeChat'
-                  fill
-                  className='object-cover'
-                />
-              </div>
-              <p className='text-sm font-medium text-gray-600 dark:text-gray-400'>
-                微信支付
-              </p>
+      {isDonateModalOpen && (
+        <div
+          onClick={() => setIsDonateModalOpen(false)}
+          className='fixed inset-0 bg-black/60 flex items-center justify-center z-[10000] backdrop-blur-sm p-4 animate-fade-in safe-area-inset'
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className='bg-white dark:bg-zinc-800 rounded-3xl shadow-2xl overflow-y-auto w-full max-w-xl animate-scale-in border border-white/10 relative flex flex-col'
+            style={{
+              maxHeight: '90vh',
+              maxWidth: '90vw'
+            }}
+          >
+            <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-zinc-800/50 sticky top-0 z-10 backdrop-blur-md">
+              <h3 className='text-lg font-bold text-gray-800 dark:text-gray-200'>
+                感谢支持！
+              </h3>
+              <button 
+                onClick={() => setIsDonateModalOpen(false)}
+                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
             </div>
-            <div className='flex flex-col items-center gap-3 flex-1 min-w-[120px]'>
-              <div className="relative aspect-square w-full rounded-2xl overflow-hidden shadow-lg bg-gray-100 border border-gray-200">
-                <Image
-                  src='/alipay_donate.jpg'
-                  alt='AliPay'
-                  fill
-                  className='object-cover'
-                />
+            
+            <div className='p-6 flex flex-col items-center gap-6'>
+              {/* 响应式布局：横屏自动左右排列 */}
+              <div className='flex flex-col sm:flex-row gap-6 w-full justify-center'>
+                <div className='flex flex-col items-center gap-3 flex-1 min-w-[120px]'>
+                  <div className="relative aspect-square w-full max-w-[180px] rounded-xl overflow-hidden shadow-lg bg-gray-100">
+                    <Image
+                      src='/wechat_donate.jpg'
+                      alt='WeChat'
+                      fill
+                      className='object-cover'
+                    />
+                  </div>
+                  <p className='text-sm font-medium text-gray-600 dark:text-gray-400'>
+                    微信支付
+                  </p>
+                </div>
+                <div className='flex flex-col items-center gap-3 flex-1 min-w-[120px]'>
+                  <div className="relative aspect-square w-full max-w-[180px] rounded-xl overflow-hidden shadow-lg bg-gray-100">
+                    <Image
+                      src='/alipay_donate.jpg'
+                      alt='AliPay'
+                      fill
+                      className='object-cover'
+                    />
+                  </div>
+                  <p className='text-sm font-medium text-gray-600 dark:text-gray-400'>
+                    支付宝
+                  </p>
+                </div>
               </div>
-              <p className='text-sm font-medium text-gray-600 dark:text-gray-400'>
-                支付宝
+              <p className='text-center text-xs text-gray-400 mt-2'>
+                点击任意空白处关闭
               </p>
             </div>
           </div>
-          <p className='text-center text-xs text-gray-400'>
-            您的支持是我们更新的动力 ❤️
-          </p>
         </div>
-      </BottomSheet>
+      )}
     </>
   );
 }

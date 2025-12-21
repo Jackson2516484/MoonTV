@@ -48,19 +48,19 @@ export default function WatchArtifact() {
     setActiveUrl(url);
   };
 
+  // 办理页面全屏覆盖
   if (activeUrl) {
     return (
-      <div className="fixed inset-0 z-[2000] bg-white dark:bg-black flex flex-col animate-slide-up">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm safe-area-top">
-          <h3 className="font-bold text-lg text-gray-800 dark:text-white">{t('handle')}</h3>
-          <button 
-            onClick={() => setActiveUrl(null)}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            <X className="w-6 h-6 text-gray-600 dark:text-gray-300" />
-          </button>
-        </div>
-        <div className="flex-1 w-full h-full relative bg-gray-50 dark:bg-gray-900">
+      <div className="fixed inset-0 z-[20000] bg-white flex flex-col animate-slide-up">
+        {/* 悬浮关闭按钮 */}
+        <button 
+          onClick={() => setActiveUrl(null)}
+          className="absolute top-4 right-4 z-[20001] p-2 bg-black/50 text-white rounded-full backdrop-blur-md safe-area-top-margin hover:bg-black/70 transition-colors"
+        >
+          <X className="w-6 h-6" />
+        </button>
+        
+        <div className="flex-1 w-full h-full relative bg-white">
            <iframe 
              src={activeUrl} 
              className="w-full h-full border-0"
