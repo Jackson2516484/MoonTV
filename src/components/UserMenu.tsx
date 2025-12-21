@@ -1,7 +1,7 @@
 'use client';
 
 import { Menu, Transition } from '@headlessui/react';
-import { Settings, User, Globe } from 'lucide-react'; // 引入 Globe 图标
+import { User, Globe } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -34,14 +34,13 @@ export default function UserMenu() {
           leaveFrom='transform opacity-100 scale-100'
           leaveTo='transform opacity-0 scale-95'
         >
-          <Menu.Items className='absolute right-0 mt-2 w-56 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none z-[5002]'>
+          <Menu.Items className='absolute right-0 mt-2 w-48 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none z-[5002]'>
             
             <div className='p-1'>
-              {/* 语言设置 - 直接作为菜单项 */}
               <Menu.Item>
                 {({ active }) => (
                   <button
-                    onClick={() => setIsSettingsOpen(true)} // 复用 SettingModal，或者可以新建一个专门选语言的
+                    onClick={() => setIsSettingsOpen(true)}
                     className={`${
                       active
                         ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
@@ -55,7 +54,6 @@ export default function UserMenu() {
               </Menu.Item>
             </div>
 
-            {/* 版本展示 - 点击弹出二维码 */}
             <div className='p-2 bg-gray-50/50 dark:bg-gray-800/50 rounded-b-xl'>
                <VersionDisplay className="w-full flex items-center justify-center gap-2 py-1 text-[10px] font-mono text-gray-400 dark:text-gray-500 hover:text-green-500 transition-colors cursor-pointer" />
             </div>

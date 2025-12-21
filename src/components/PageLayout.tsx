@@ -22,7 +22,12 @@ export default function PageLayout({
   const adShownRef = useRef(false);
 
   useEffect(() => {
-    // 仅在会话启动时显示一次广告
+    // 强制清理可能残留的 auth cookie，确保纯净访客模式
+    if (typeof document !== 'undefined') {
+      document.cookie = 'auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    }
+
+    // 广告逻辑：仅在会话启动时显示一次
     const hasShown = sessionStorage.getItem('ad_shown');
     if (!hasShown && !adShownRef.current) {
       setShowAd(true);
@@ -45,10 +50,10 @@ export default function PageLayout({
       </Suspense>
 
       <div className='flex-1 flex flex-col min-w-0 mb-14 md:mb-0 relative'>
-        {/* Mobile Header: 负责顶部导航、返回键、个人图标 */}
+        {/* Mobile Header: Fixed Top */}
         <MobileHeader />
         
-        {/* 内容区域：需要给顶部留出空间 (Header高度 + 安全区) */}
+        {/* 内容区域：Padding Top 适配 Header */}
         <main
           className={`flex-1 overflow-y-auto overflow-x-hidden ${className}`}
           style={{
