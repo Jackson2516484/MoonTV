@@ -79,8 +79,10 @@ export default function PageLayout({
         <StartupAd onFinish={() => setShowAd(false)} />
       )}
 
-      {/* Sidebar for Desktop */}
-      <Sidebar activePath={activePath} />
+      <Suspense fallback={<div className="hidden md:block w-64 bg-gray-50 dark:bg-black" />}>
+        {/* Sidebar for Desktop */}
+        <Sidebar activePath={activePath} />
+      </Suspense>
 
       {/* Main Content Area */}
       <div className='flex-1 flex flex-col min-w-0 mb-14 md:mb-0 relative'>
@@ -95,7 +97,9 @@ export default function PageLayout({
         </main>
 
         {/* Mobile Bottom Navigation */}
-        <MobileBottomNav activePath={activePath} />
+        <Suspense fallback={<div className="md:hidden h-14 bg-white dark:bg-gray-900" />}>
+          <MobileBottomNav activePath={activePath} />
+        </Suspense>
       </div>
     </div>
   );
