@@ -1,7 +1,7 @@
 'use client';
 
 import { Menu, Transition } from '@headlessui/react';
-import { User, Globe } from 'lucide-react';
+import { Settings, User, Globe, Info } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -36,6 +36,7 @@ export default function UserMenu() {
         >
           <Menu.Items className='absolute right-0 mt-2 w-48 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none z-[5002]'>
             
+            {/* 设置 -> 语言设置 */}
             <div className='p-1'>
               <Menu.Item>
                 {({ active }) => (
@@ -54,6 +55,7 @@ export default function UserMenu() {
               </Menu.Item>
             </div>
 
+            {/* 版本号 -> 捐赠二维码 */}
             <div className='p-2 bg-gray-50/50 dark:bg-gray-800/50 rounded-b-xl'>
                <VersionDisplay className="w-full flex items-center justify-center gap-2 py-1 text-[10px] font-mono text-gray-400 dark:text-gray-500 hover:text-green-500 transition-colors cursor-pointer" />
             </div>

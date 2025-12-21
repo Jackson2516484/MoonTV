@@ -11,7 +11,7 @@ const MobileHeader = () => {
   const { siteName } = useSite();
   const pathname = usePathname();
   
-  // 原项目逻辑：非首页显示返回键
+  // 恢复原版逻辑：非首页显示返回键
   const showBackButton = pathname !== '/';
 
   return (
@@ -23,8 +23,8 @@ const MobileHeader = () => {
       }}
     >
       <div className='h-14 flex items-center justify-between px-4'>
-        {/* 左侧：返回按钮 */}
-        <div className='flex items-center gap-2 min-w-[2.5rem]'>
+        {/* 左侧：返回按钮 (固定宽度占位，保证居中) */}
+        <div className='flex items-center gap-2 min-w-[4rem]'>
           {showBackButton && <BackButton />}
         </div>
 
@@ -39,7 +39,7 @@ const MobileHeader = () => {
         </div>
 
         {/* 右侧：主题切换 + 用户菜单 (恢复原项目布局) */}
-        <div className='flex items-center justify-end gap-3 min-w-[2.5rem]'>
+        <div className='flex items-center justify-end gap-3 min-w-[4rem]'>
           <ThemeToggle />
           <UserMenu />
         </div>
