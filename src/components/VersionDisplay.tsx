@@ -64,14 +64,14 @@ export function VersionDisplay({ className }: { className?: string }) {
 
       {isDonateModalOpen && (
         <div
-          onClick={() => setIsDonateModalOpen(false)} // 点击背景关闭
-          className='fixed inset-0 bg-black/60 flex items-center justify-center z-[10000] backdrop-blur-sm p-4 animate-fade-in safe-area-inset'
+          onClick={() => setIsDonateModalOpen(false)}
+          className='fixed inset-0 bg-black/60 flex items-center justify-center z-[10000] backdrop-blur-sm p-4 animate-fade-in'
         >
           <div
-            onClick={(e) => e.stopPropagation()} // 阻止冒泡
-            className='bg-white dark:bg-zinc-800 rounded-3xl shadow-2xl overflow-hidden w-full max-w-md animate-scale-in border border-white/10'
+            onClick={(e) => e.stopPropagation()}
+            className='bg-white dark:bg-zinc-800 rounded-3xl shadow-2xl overflow-hidden w-full max-w-2xl animate-scale-in border border-white/10 flex flex-col max-h-[90vh]'
           >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-zinc-800/50">
+            <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-zinc-800/50">
               <h3 className='text-lg font-bold text-gray-800 dark:text-gray-200'>
                 感谢支持！
               </h3>
@@ -83,10 +83,11 @@ export function VersionDisplay({ className }: { className?: string }) {
               </button>
             </div>
             
-            <div className='p-6 md:p-8 flex flex-col items-center gap-6'>
-              <div className='flex flex-col md:flex-row gap-6 w-full justify-center'>
-                <div className='flex flex-col items-center gap-3 flex-1'>
-                  <div className="relative aspect-square w-full max-w-[180px] rounded-xl overflow-hidden shadow-lg bg-gray-100">
+            <div className='overflow-y-auto p-6 md:p-8 flex flex-col items-center gap-6'>
+              {/* 响应式布局：竖屏上下排，横屏左右排 */}
+              <div className='flex flex-col md:flex-row landscape:flex-row gap-6 w-full justify-center'>
+                <div className='flex flex-col items-center gap-3 flex-1 min-w-[150px]'>
+                  <div className="relative aspect-square w-full max-w-[200px] rounded-xl overflow-hidden shadow-lg bg-gray-100">
                     <Image
                       src='/wechat_donate.jpg'
                       alt='WeChat'
@@ -98,8 +99,8 @@ export function VersionDisplay({ className }: { className?: string }) {
                     微信支付
                   </p>
                 </div>
-                <div className='flex flex-col items-center gap-3 flex-1'>
-                  <div className="relative aspect-square w-full max-w-[180px] rounded-xl overflow-hidden shadow-lg bg-gray-100">
+                <div className='flex flex-col items-center gap-3 flex-1 min-w-[150px]'>
+                  <div className="relative aspect-square w-full max-w-[200px] rounded-xl overflow-hidden shadow-lg bg-gray-100">
                     <Image
                       src='/alipay_donate.jpg'
                       alt='AliPay'

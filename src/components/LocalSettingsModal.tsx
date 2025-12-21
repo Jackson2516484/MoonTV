@@ -17,15 +17,15 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
 
   return (
     <div 
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in safe-area-inset"
-      onClick={onClose} // 点击背景关闭
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in"
+      onClick={onClose}
     >
       <div 
-        className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-scale-in border border-white/20 max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()} // 阻止冒泡，防止点击内容关闭
+        className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-scale-in border border-white/20 flex flex-col max-h-[85vh]"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 sticky top-0 z-10 backdrop-blur-md">
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 backdrop-blur-md">
           <h3 className="text-xl font-black text-gray-900 dark:text-white">
             本地设置
           </h3>
@@ -37,8 +37,8 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-8">
+        {/* Scrollable Content */}
+        <div className="overflow-y-auto p-6 space-y-8 overscroll-contain">
           {/* Language */}
           <div className="space-y-4">
             <label className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -61,7 +61,7 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
           </div>
 
           {/* Note */}
-          <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
+          <div className="pt-2">
             <div className="bg-green-50 dark:bg-green-900/10 rounded-xl p-4 border border-green-100 dark:border-green-900/20">
               <p className="text-xs text-center text-green-700 dark:text-green-400 font-medium">
                 这些设置保存在应用中
