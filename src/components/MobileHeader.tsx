@@ -14,12 +14,20 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
   const { siteName } = useSite();
   const pathname = usePathname();
   
-  // 强制逻辑：只要不是根路径 '/' 就显示返回键
+  // 始终在非首页显示返回键，即使是横屏
   const shouldShowBack = showBackButton || (pathname !== '/' && pathname !== '/login');
 
   return (
     <header className='md:hidden relative w-full bg-white/80 backdrop-blur-2xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/80 dark:border-gray-700/50 z-[5000]'>
-      <div className='h-14 flex items-center justify-between px-4'>
+      <div 
+        className='flex items-center justify-between px-4'
+        style={{
+          // 适配刘海屏和横屏安全区
+          height: '3.5rem',
+          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+          paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        }}
+      >
         {/* 左侧：返回按钮 */}
         <div className='flex items-center w-12'>
           {shouldShowBack && <BackButton />}
@@ -29,7 +37,7 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
         <div className='absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'>
           <Link
             href='/'
-            className='text-2xl font-black text-green-600 tracking-tighter hover:opacity-80 transition-opacity drop-shadow-sm'
+            className='text-2xl font-black text-green-600 tracking-tighter hover:opacity-80 transition-opacity drop-shadow-sm whitespace-nowrap'
           >
             {siteName}
           </Link>

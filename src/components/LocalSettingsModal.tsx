@@ -16,10 +16,16 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
-      <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-scale-in border border-white/20">
+    <div 
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in safe-area-inset"
+      onClick={onClose} // 点击背景关闭
+    >
+      <div 
+        className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-scale-in border border-white/20 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()} // 阻止冒泡，防止点击内容关闭
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 sticky top-0 z-10 backdrop-blur-md">
           <h3 className="text-xl font-black text-gray-900 dark:text-white">
             本地设置
           </h3>
