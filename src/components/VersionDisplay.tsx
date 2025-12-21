@@ -63,16 +63,21 @@ export function VersionDisplay({ className }: { className?: string }) {
       </button>
 
       {isDonateModalOpen && (
-        <div
-          onClick={() => setIsDonateModalOpen(false)}
-          className='fixed inset-0 bg-black/60 flex items-center justify-center z-[10000] backdrop-blur-sm p-4 animate-fade-in safe-area-inset'
-        >
+        <>
+          {/* 遮罩 */}
+          <div 
+            className='fixed inset-0 z-[9001] bg-black/50 backdrop-blur-sm'
+            onClick={() => setIsDonateModalOpen(false)}
+          />
+          
+          {/* 弹窗 - 定位在 Header 下方 */}
           <div
             onClick={(e) => e.stopPropagation()}
-            className='bg-white dark:bg-zinc-800 rounded-3xl shadow-2xl overflow-y-auto w-full max-w-xl animate-scale-in border border-white/10 relative flex flex-col'
+            className='fixed z-[9002] left-0 right-0 bg-white dark:bg-zinc-800 shadow-2xl rounded-b-3xl border-t border-white/10 flex flex-col animate-slide-down safe-area-inset-x'
             style={{
-              maxHeight: '90vh',
-              maxWidth: '90vw'
+              top: 'calc(4rem + env(safe-area-inset-top))',
+              maxHeight: '80vh',
+              overflowY: 'auto'
             }}
           >
             <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-zinc-800/50 sticky top-0 z-10 backdrop-blur-md">
@@ -87,8 +92,8 @@ export function VersionDisplay({ className }: { className?: string }) {
               </button>
             </div>
             
-            <div className='p-6 flex flex-col items-center gap-6'>
-              {/* 响应式布局：横屏自动左右排列 */}
+            <div className='p-6 md:p-8 flex flex-col items-center gap-6'>
+              {/* 响应式布局：横屏左右排，竖屏上下排 */}
               <div className='flex flex-col sm:flex-row gap-6 w-full justify-center'>
                 <div className='flex flex-col items-center gap-3 flex-1 min-w-[120px]'>
                   <div className="relative aspect-square w-full max-w-[180px] rounded-xl overflow-hidden shadow-lg bg-gray-100">
@@ -118,11 +123,11 @@ export function VersionDisplay({ className }: { className?: string }) {
                 </div>
               </div>
               <p className='text-center text-xs text-gray-400 mt-2'>
-                点击任意空白处关闭
+                点击空白处关闭
               </p>
             </div>
           </div>
-        </div>
+        </>
       )}
     </>
   );

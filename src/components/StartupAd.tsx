@@ -28,7 +28,6 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
   const [showWebView, setShowWebView] = useState(false);
 
   useEffect(() => {
-    // 随机选择广告，尽量不重复
     const lastAdIndex = parseInt(localStorage.getItem('last_ad_index') || '-1');
     let newIndex = Math.floor(Math.random() * AD_IMAGES.length);
     if (AD_IMAGES.length > 1 && newIndex === lastAdIndex) {
@@ -37,7 +36,6 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
     setAdIndex(newIndex);
     localStorage.setItem('last_ad_index', newIndex.toString());
 
-    // 倒计时
     const timer = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
@@ -63,11 +61,9 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
     onFinish(); 
   };
 
-  // 办理页面（WebView）- 全屏覆盖
   if (showWebView) {
     return (
-      <div className="fixed inset-0 z-[20000] bg-white flex flex-col">
-        {/* 顶部悬浮关闭按钮 */}
+      <div className="fixed inset-0 z-[20000] bg-white flex flex-col animate-slide-up">
         <button 
           onClick={handleWebViewClose}
           className="absolute top-4 right-4 z-[20001] p-2 bg-black/50 text-white rounded-full backdrop-blur-md safe-area-top-margin"
@@ -84,7 +80,6 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
     );
   }
 
-  // 广告展示 - 全屏覆盖，无黑边
   return (
     <div className="fixed inset-0 z-[20000] bg-black">
       <div className="relative w-full h-full">
@@ -92,7 +87,8 @@ export default function StartupAd({ onFinish }: StartupAdProps) {
           src={AD_IMAGES[adIndex]}
           alt="Startup Ad"
           fill
-          className="object-cover" // 确保填满屏幕，无黑边
+          // 改为 object-fill 以强制填满屏幕，不留黑边，不裁剪（可能会变形，符合“填充模式”描述）
+          className="object-fill" 
           onClick={handleAdClick}
           priority
         />

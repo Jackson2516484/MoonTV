@@ -22,12 +22,11 @@ export default function PageLayout({
   const adShownRef = useRef(false);
 
   useEffect(() => {
-    // 强制清理可能残留的 auth cookie，确保纯净访客模式
+    // 强制清理 auth
     if (typeof document !== 'undefined') {
       document.cookie = 'auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
     }
 
-    // 广告逻辑：仅在会话启动时显示一次
     const hasShown = sessionStorage.getItem('ad_shown');
     if (!hasShown && !adShownRef.current) {
       setShowAd(true);
@@ -40,7 +39,6 @@ export default function PageLayout({
     <div className='flex min-h-screen bg-gray-50 dark:bg-black relative overflow-hidden'>
       <BackButtonHandler />
       
-      {/* 开屏广告 */}
       {showAd && (
         <StartupAd onFinish={() => setShowAd(false)} />
       )}
@@ -50,14 +48,13 @@ export default function PageLayout({
       </Suspense>
 
       <div className='flex-1 flex flex-col min-w-0 mb-14 md:mb-0 relative'>
-        {/* Mobile Header: Fixed Top */}
         <MobileHeader />
         
-        {/* 内容区域：Padding Top 适配 Header */}
+        {/* 内容区域：Top Padding 增加适配新的 Header 高度 (4rem) */}
         <main
           className={`flex-1 overflow-y-auto overflow-x-hidden ${className}`}
           style={{
-            paddingTop: 'calc(3.5rem + env(safe-area-inset-top))'
+            paddingTop: 'calc(4rem + env(safe-area-inset-top))'
           }}
         >
           {children}

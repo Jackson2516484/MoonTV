@@ -15,20 +15,25 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in safe-area-inset"
-      onClick={onClose}
-    >
+    <>
+      {/* 全屏透明遮罩，用于点击关闭 */}
       <div 
-        className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm shadow-2xl overflow-y-auto animate-scale-in border border-white/10 relative"
+        className="fixed inset-0 z-[9001]" 
+        onClick={onClose}
+      />
+      
+      {/* 弹窗主体 - 定位在 Header 下方 */}
+      <div 
+        className="fixed z-[9002] left-0 right-0 bg-white dark:bg-gray-900 shadow-2xl rounded-b-3xl border-t border-gray-100 dark:border-gray-800 animate-slide-down safe-area-inset-x"
         style={{
-          maxHeight: '85vh',
-          maxWidth: '90vw'
+          // 紧贴 Header 底部 (4rem + safe-area-top)
+          top: 'calc(4rem + env(safe-area-inset-top))',
+          maxHeight: '70vh', // 限制高度
+          overflowY: 'auto'
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 backdrop-blur-md sticky top-0 z-10">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/80 backdrop-blur-md sticky top-0 z-10">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white">
             {t('language')}
           </h3>
@@ -40,7 +45,6 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6">
            <LanguageSelector />
            
@@ -51,6 +55,6 @@ export default function LocalSettingsModal({ isOpen, onClose }: LocalSettingsMod
            </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
