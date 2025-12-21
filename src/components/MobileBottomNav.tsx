@@ -2,10 +2,11 @@
 
 'use client';
 
-import { Clover, Film, Home, Search, Star, Tv, Video } from 'lucide-react';
+import { Clover, Film, Home, Search, Star, Tv, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface MobileBottomNavProps {
   /**
@@ -15,32 +16,33 @@ interface MobileBottomNavProps {
 }
 
 const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
+  const { t } = useLanguage();
   const pathname = usePathname();
 
   // 当前激活路径：优先使用传入的 activePath，否则回退到浏览器地址
   const currentActive = activePath ?? pathname;
 
   const [navItems, setNavItems] = useState([
-    { icon: Home, label: '首页', href: '/' },
-    { icon: Search, label: '搜索', href: '/search' },
+    { icon: Home, labelKey: 'home', href: '/' },
+    { icon: Search, labelKey: 'search', href: '/search' },
     {
       icon: Film,
-      label: '电影',
+      labelKey: 'movie',
       href: '/douban?type=movie',
     },
     {
       icon: Tv,
-      label: '剧集',
+      labelKey: 'tv',
       href: '/douban?type=tv',
     },
     {
       icon: Clover,
-      label: '综艺',
+      labelKey: 'show',
       href: '/douban?type=show',
     },
     {
-      icon: Video,
-      label: '视频库',
+      icon: Zap, // Changed icon to Zap for "Artifact"
+      labelKey: 'library', // Maps to '观影神器' in translations
       href: '/library',
     },
   ]);
@@ -52,7 +54,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         ...prevItems,
         {
           icon: Star,
-          label: '自定义',
+          labelKey: 'custom',
           href: '/douban?type=custom',
         },
       ]);
@@ -84,7 +86,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       }}
     >
       <ul className='flex items-center overflow-x-auto scrollbar-hide'>
-        {navItems.map((item) => {
+        {navItems.map((item: any) => {
           const active = isActive(item.href);
           return (
             <li
@@ -110,7 +112,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
                       : 'text-gray-600 dark:text-gray-300'
                   }
                 >
-                  {item.label}
+                  {t(item.labelKey)}
                 </span>
               </Link>
             </li>

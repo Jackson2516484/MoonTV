@@ -12,6 +12,8 @@ import { getConfig } from '@/lib/config';
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 import OrientationManager from '@/components/OrientationManager';
+import { LanguageProvider } from '@/contexts/LanguageContext';
+import { UserProvider } from '@/contexts/UserContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -105,17 +107,21 @@ export default async function RootLayout({
       <body
         className={`${inter.className} min-h-screen bg-white text-gray-900 dark:bg-black dark:text-gray-200`}
       >
-        <OrientationManager />
-        <ThemeProvider
-          attribute='class'
-          defaultTheme='system'
-          enableSystem
-          disableTransitionOnChange
-        >
-          <SiteProvider siteName={siteName} announcement={announcement}>
-            {children}
-          </SiteProvider>
-        </ThemeProvider>
+        <LanguageProvider>
+          <UserProvider>
+            <OrientationManager />
+            <ThemeProvider
+              attribute='class'
+              defaultTheme='system'
+              enableSystem
+              disableTransitionOnChange
+            >
+              <SiteProvider siteName={siteName} announcement={announcement}>
+                {children}
+              </SiteProvider>
+            </ThemeProvider>
+          </UserProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Clover, Film, Home, Menu, Search, Star, Tv, Video } from 'lucide-react';
+import { Clover, Film, Home, Menu, Search, Star, Tv, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -15,6 +15,7 @@ import {
 } from 'react';
 
 import { useSite } from './SiteProvider';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface SidebarContextType {
   isCollapsed: boolean;
@@ -54,6 +55,7 @@ declare global {
 }
 
 const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
+  const { t } = useLanguage();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -127,22 +129,22 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
   const [menuItems, setMenuItems] = useState([
     {
       icon: Film,
-      label: '电影',
+      labelKey: 'movie',
       href: '/douban?type=movie',
     },
     {
       icon: Tv,
-      label: '剧集',
+      labelKey: 'tv',
       href: '/douban?type=tv',
     },
     {
       icon: Clover,
-      label: '综艺',
+      labelKey: 'show',
       href: '/douban?type=show',
     },
     {
-      icon: Video,
-      label: '视频库',
+      icon: Zap, // Changed to Zap
+      labelKey: 'library', // Maps to 观影神器
       href: '/library',
     },
   ]);
@@ -154,7 +156,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
         ...prevItems,
         {
           icon: Star,
-          label: '自定义',
+          labelKey: 'custom',
           href: '/douban?type=custom',
         },
       ]);
@@ -212,7 +214,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                 </div>
                 {!isCollapsed && (
                   <span className='whitespace-nowrap transition-opacity duration-200 opacity-100'>
-                    首页
+                    {t('home')}
                   </span>
                 )}
               </Link>
@@ -233,7 +235,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                 </div>
                 {!isCollapsed && (
                   <span className='whitespace-nowrap transition-opacity duration-200 opacity-100'>
-                    搜索
+                    {t('search')}
                   </span>
                 )}
               </Link>
@@ -242,7 +244,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
             {/* 菜单项 */}
             <div className='flex-1 overflow-y-auto px-2 pt-4'>
               <div className='space-y-1'>
-                {menuItems.map((item) => {
+                {menuItems.map((item: any) => {
                   // 检查当前路径是否匹配这个菜单项
                   const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
 
@@ -257,7 +259,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                   const Icon = item.icon;
                   return (
                     <Link
-                      key={item.label}
+                      key={item.labelKey}
                       href={item.href}
                       onClick={() => setActive(item.href)}
                       data-active={isActive}
@@ -270,7 +272,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                       </div>
                       {!isCollapsed && (
                         <span className='whitespace-nowrap transition-opacity duration-200 opacity-100'>
-                          {item.label}
+                          {t(item.labelKey)}
                         </span>
                       )}
                     </Link>
