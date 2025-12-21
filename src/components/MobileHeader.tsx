@@ -4,19 +4,15 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { BackButton } from './BackButton';
 import { useSite } from './SiteProvider';
+import { ThemeToggle } from './ThemeToggle';
 import UserMenu from './UserMenu';
 
-interface MobileHeaderProps {
-  showBackButton?: boolean;
-}
-
-const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
+const MobileHeader = () => {
   const { siteName } = useSite();
   const pathname = usePathname();
   
-  // 恢复原版逻辑：由传入 props 或路径决定是否显示返回
-  // 但为了横屏体验，我们在非首页都显示
-  const shouldShowBack = showBackButton || (pathname !== '/');
+  // 原项目逻辑：非首页显示返回键
+  const showBackButton = pathname !== '/';
 
   return (
     <header 
@@ -27,12 +23,12 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
       }}
     >
       <div className='h-14 flex items-center justify-between px-4'>
-        {/* 左侧：返回按钮 (原版位置) */}
+        {/* 左侧：返回按钮 */}
         <div className='flex items-center gap-2 min-w-[2.5rem]'>
-          {shouldShowBack && <BackButton />}
+          {showBackButton && <BackButton />}
         </div>
 
-        {/* 中间：Logo (原版位置，绝对居中) */}
+        {/* 中间：Logo (绝对居中) */}
         <div className='absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pt-[env(safe-area-inset-top)]'>
           <Link
             href='/'
@@ -42,8 +38,9 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
           </Link>
         </div>
 
-        {/* 右侧：用户菜单 (原版位置) */}
-        <div className='flex items-center justify-end gap-2 min-w-[2.5rem]'>
+        {/* 右侧：主题切换 + 用户菜单 (恢复原项目布局) */}
+        <div className='flex items-center justify-end gap-3 min-w-[2.5rem]'>
+          <ThemeToggle />
           <UserMenu />
         </div>
       </div>
