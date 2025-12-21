@@ -7,7 +7,7 @@ import MobileBottomNav from '@/components/MobileBottomNav';
 import Sidebar from '@/components/Sidebar';
 import StartupAd from '@/components/StartupAd';
 import BackButtonHandler from '@/components/BackButtonHandler';
-import FloatingNavBar from '@/components/FloatingNavBar';
+// 移除 FloatingNavBar 引用
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -22,6 +22,7 @@ export default function PageLayout({
 }: PageLayoutProps) {
   const [showAd, setShowAd] = useState(false);
   const adShownRef = useRef(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     // 确保广告只在应用会话启动时显示一次
@@ -49,15 +50,18 @@ export default function PageLayout({
 
       {/* Main Content Area */}
       <div className='flex-1 flex flex-col min-w-0 mb-14 md:mb-0 relative'>
-        {/* 纯展示 Header (Logo) */}
-        <MobileHeader />
+        {/* 恢复原版布局：Fixed Header */}
+        <MobileHeader showBackButton={pathname !== '/'} />
         
-        {/* 悬浮导航按钮 (返回 + 用户) - 位于 Header 下方 */}
-        <FloatingNavBar />
-
-        {/* Content */}
+        {/* 
+           由于 MobileHeader 变成了 fixed，我们需要给 main 内容加 padding-top 
+           高度计算：3.5rem (Header height) + env(safe-area-inset-top)
+        */}
         <main
           className={`flex-1 overflow-y-auto overflow-x-hidden ${className}`}
+          style={{
+            paddingTop: 'calc(3.5rem + env(safe-area-inset-top))'
+          }}
         >
           {children}
         </main>
