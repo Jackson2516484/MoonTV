@@ -21,7 +21,7 @@ export default function UserMenu() {
   useEffect(() => {
     const info = getAuthInfoFromBrowserCookie();
     if (info) {
-      setUsername(info.username);
+      setUsername(info.username || null);
     }
   }, []);
 
