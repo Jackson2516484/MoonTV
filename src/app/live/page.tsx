@@ -633,42 +633,6 @@ function LivePageClient() {
     window.setTimeout(() => setPlayTip(null), 3000);
   };
 
-  // 用 VLC 播放（桌面端本地服务直接拉起；移动端/回退走 vlc:// 协议）
-  const handlePlayInVlc = async () => {
-    if (!currentChannel) return;
-    const rawUrl = currentChannel.url;
-    try {
-      const res = await fetch('/api/vlc/open', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: rawUrl }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data?.ok) {
-        setPlayTip(t('vlcOpenTip'));
-        window.setTimeout(() => setPlayTip(null), 3000);
-        return;
-      }
-      throw new Error(data?.error || 'VLC unavailable');
-    } catch (err) {
-      try {
-        const a = document.createElement('a');
-        a.href = `vlc://${rawUrl}`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      } catch (err2) {
-        // 忽略
-      }
-      setPlayTip(t('vlcFallbackTip'));
-      window.setTimeout(() => setPlayTip(null), 5000);
-      try {
-        await navigator.clipboard.writeText(rawUrl);
-      } catch (err2) {
-        // 忽略
-      }
-    }
-  };
   const handleCast = () => {
     const video = artPlayerRef.current?.video as HTMLVideoElement | undefined;
     const result = castCurrentVideo(video);
@@ -922,14 +886,6 @@ function LivePageClient() {
                       重试
                     </button>
                   )}
-                  {currentChannel && (
-                    <button
-                      onClick={handlePlayInVlc}
-                      className='px-2 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors'
-                    >
-                      {t('playInVlc')}
-                    </button>
-                  )}
                 </div>
               </div>
             )}
@@ -961,20 +917,6 @@ function LivePageClient() {
               </div>
             </div>
             <div className='flex items-center gap-2 flex-shrink-0'>
-              <button
-                onClick={handlePlayInVlc}
-                title={t('playInVlc')}
-                className='flex items-center gap-1 rounded-lg bg-orange-500/10 dark:bg-orange-500/20 px-3 py-1.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-500/20 dark:hover:bg-orange-500/30 transition-colors'
-              >
-                <svg
-                  className='w-4 h-4'
-                  viewBox='0 0 24 24'
-                  fill='currentColor'
-                >
-                  <path d='M12 2 3.5 20h2.8l2.2-4.5h7L17.7 20h2.8L12 2zm0 5.2 2.9 6.3H9.1L12 7.2z' />
-                </svg>
-                {t('playInVlc')}
-              </button>
               <button
                 onClick={() => handleCopyUrl(currentChannel.url)}
                 title={t('copyUrl')}
@@ -1118,7 +1060,7 @@ function LivePageClient() {
         </div>
       </div>
 
-      {/* 播放提示浮层（VLC / 复制等） */}
+      {/* 播放提示浮层（复制等） */}
       {playTip && (
         <div className='fixed bottom-24 left-1/2 -translate-x-1/2 z-[8000] flex items-center gap-2 rounded-full bg-gray-900/90 dark:bg-gray-700/90 text-white text-sm px-4 py-2 shadow-lg'>
           {playTip}

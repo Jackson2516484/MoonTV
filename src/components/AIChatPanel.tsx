@@ -3,13 +3,11 @@
 'use client';
 
 import { Bot, Loader2, Send, Trash2, X } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getLocalAISettings } from '@/lib/ai.settings';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useUser } from '@/contexts/UserContext';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -37,8 +35,6 @@ export default function AIChatPanel({
   welcomeMessage,
 }: AIChatPanelProps) {
   const { t } = useLanguage();
-  const { isLoggedIn } = useUser();
-  const router = useRouter();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -94,15 +90,6 @@ export default function AIChatPanel({
           aiSettings: aiSettings?.enabled ? aiSettings : undefined,
         }),
       });
-
-      if (res.status === 401) {
-        setError(t('loginRequired'));
-        setStreaming(false);
-        setTimeout(() => {
-          router.push('/login');
-        }, 800);
-        return;
-      }
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -275,18 +262,12 @@ export default function AIChatPanel({
 
       {/* 输入区 */}
       <div className='border-t border-gray-200 dark:border-gray-800 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]'>
-        {!isLoggedIn && (
-          <p className='text-xs text-center text-gray-500 dark:text-gray-400 mb-2'>
-            {t('loginRequired')}
-          </p>
-        )}
         {messages.length === 1 && !streaming && (
           <div className='flex flex-wrap gap-2 mb-3'>
             {QUICK_PROMPTS.map((prompt) => (
               <button
                 key={prompt}
                 onClick={() => handleSendMessage(prompt)}
-                disabled={!isLoggedIn}
                 className='rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors'
               >
                 {prompt}
@@ -297,7 +278,6 @@ export default function AIChatPanel({
                 onClick={() =>
                   handleSendMessage(`${context.title} 讲的什么故事？`)
                 }
-                disabled={!isLoggedIn}
                 className='rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors'
               >
                 剧情介绍
@@ -317,7 +297,7 @@ export default function AIChatPanel({
               }
             }}
             placeholder={t('aiAsk')}
-            disabled={streaming || !isLoggedIn}
+            disabled={streaming}
             rows={1}
             className='flex-1 resize-none rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 disabled:opacity-50'
             style={{ minHeight: '48px', maxHeight: '120px' }}
@@ -329,7 +309,7 @@ export default function AIChatPanel({
           />
           <button
             onClick={() => handleSendMessage()}
-            disabled={!input.trim() || streaming || !isLoggedIn}
+            disabled={!input.trim() || streaming}
             className='flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-50 transition-colors'
           >
             {streaming ? (

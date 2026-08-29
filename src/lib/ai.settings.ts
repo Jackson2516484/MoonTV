@@ -48,6 +48,12 @@ export const AI_PROVIDERS: AIProviderPreset[] = [
     baseURL: 'https://open.bigmodel.cn/api/paas/v4',
     model: 'glm-4-flash',
   },
+  {
+    key: 'gemini',
+    label: 'Google Gemini',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta',
+    model: 'gemini-2.0-flash',
+  },
   { key: 'custom', label: '自定义', baseURL: '', model: '' },
 ];
 

@@ -1,18 +1,15 @@
-﻿'use client';
+'use client';
 
 import { Menu, Transition } from '@headlessui/react';
-import { LogIn, LogOut, Settings, User, Globe, Info } from 'lucide-react';
-import Link from 'next/link';
+import { Globe, User } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useUser } from '@/contexts/UserContext';
 import { VersionDisplay } from '@/components/VersionDisplay';
 import LocalSettingsModal from './LocalSettingsModal';
 
 export default function UserMenu() {
   const { t } = useLanguage();
-  const { isLoggedIn, username, logout } = useUser();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   return (
@@ -38,51 +35,7 @@ export default function UserMenu() {
           leaveTo='transform opacity-0 scale-95'
         >
           <Menu.Items className='absolute right-0 mt-2 w-52 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none z-[5002]'>
-            {/* 登录状态 */}
-            <div className='p-1'>
-              {isLoggedIn ? (
-                <>
-                  {username && (
-                    <div className='px-3 py-2 text-sm text-gray-500 dark:text-gray-400 truncate'>
-                      {username}
-                    </div>
-                  )}
-                  <Menu.Item>
-                    {({ active }) => (
-                      <button
-                        onClick={() => logout()}
-                        className={`${
-                          active
-                            ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-                            : 'text-gray-700 dark:text-gray-200'
-                        } group flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all`}
-                      >
-                        <LogOut className='mr-3 h-4 w-4 text-gray-400 group-hover:text-green-500' />
-                        {t('logout')}
-                      </button>
-                    )}
-                  </Menu.Item>
-                </>
-              ) : (
-                <Menu.Item>
-                  {({ active }) => (
-                    <Link
-                      href='/login'
-                      className={`${
-                        active
-                          ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
-                          : 'text-gray-700 dark:text-gray-200'
-                      } group flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all`}
-                    >
-                      <LogIn className='mr-3 h-4 w-4 text-gray-400 group-hover:text-green-500' />
-                      {t('login')}
-                    </Link>
-                  )}
-                </Menu.Item>
-              )}
-            </div>
-
-            {/* 设置 -> 语言设置 */}
+            {/* 设置 -> 语言 / AI 设置 */}
             <div className='p-1'>
               <Menu.Item>
                 {({ active }) => (

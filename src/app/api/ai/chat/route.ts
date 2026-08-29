@@ -5,11 +5,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AIConfig } from '@/lib/admin.types';
 import {
   ChatMessage,
+  detectAIFormat,
+  extractAIContent,
   getEffectiveAIConfig,
   streamOpenAIChat,
   transformToSSE,
 } from '@/lib/ai';
-import { getAuthInfoFromCookie } from '@/lib/auth';
 
 export const runtime = 'edge';
 
@@ -32,17 +33,11 @@ interface ChatRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. 验证用户登录
-    const authInfo = getAuthInfoFromCookie(request);
-    if (!authInfo) {
-      return NextResponse.json({ error: '请先登录' }, { status: 401 });
-    }
-
-    // 2. 解析请求
+    // 1. 解析请求
     const body = (await request.json()) as ChatRequest;
     const { message, context, history = [] } = body;
 
-    // 3. 获取 AI 配置（优先客户端自定义设置，回退服务端配置）
+    // 2. 获取 AI 配置（优先客户端自定义设置，回退服务端配置）
     const clientAi = body.aiSettings;
     let aiConfig: AIConfig | null = null;
     if (clientAi?.apiKey && clientAi?.baseURL && clientAi?.model) {
@@ -66,7 +61,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '消息内容不能为空' }, { status: 400 });
     }
 
-    // 4. 构建系统提示词
+    // 3. 构建系统提示词
     let systemPrompt = aiConfig.SystemPrompt || '';
     if (context?.title) {
       systemPrompt += `\n当前用户正在观看《${context.title}》${
@@ -79,13 +74,14 @@ export async function POST(request: NextRequest) {
       '\n你是一个专业的影视推荐与问答助手。回答要简洁、准确、有帮助。推荐影片时给出片名和简短理由。';
 
     const messages: ChatMessage[] = [
-      { role: 'user', content: systemPrompt },
+      { role: 'system', content: systemPrompt },
       { role: 'assistant', content: '明白了，我会按照要求回答用户的问题。' },
       ...history,
       { role: 'user', content: message },
     ];
 
-    // 5. 调用 AI API
+    // 4. 调用 AI API
+    const aiFormat = detectAIFormat(aiConfig.CustomBaseURL);
     const enableStreaming = aiConfig.EnableStreaming !== false;
 
     try {
@@ -102,7 +98,7 @@ export async function POST(request: NextRequest) {
       );
 
       if (enableStreaming) {
-        const sseStream = transformToSSE(result as ReadableStream);
+        const sseStream = transformToSSE(result as ReadableStream, aiFormat);
         return new NextResponse(sseStream, {
           headers: {
             'Content-Type': 'text/event-stream',
@@ -113,7 +109,7 @@ export async function POST(request: NextRequest) {
       }
 
       const data = await (result as Response).json();
-      let content = data.choices?.[0]?.message?.content || '';
+      let content = extractAIContent(data, aiFormat);
       content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
       return NextResponse.json({ content });
     } catch (err: any) {

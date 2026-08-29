@@ -1,10 +1,10 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 
 import { AIConfig } from '@/lib/admin.types';
 import { getConfig } from '@/lib/config';
 
 export interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant';
   content: string;
 }
 
@@ -17,6 +17,17 @@ export interface AIComment {
   time: string;
   votes: number;
   isAiGenerated: true;
+}
+
+export type AIFormat = 'openai' | 'gemini';
+
+// 根据 API 地址自动识别接口格式：地址包含 gemini / generativelanguage 视为 Gemini 原生格式
+export function detectAIFormat(baseURL: string): AIFormat {
+  const u = (baseURL || '').toLowerCase();
+  if (u.includes('generativelanguage') || u.includes('gemini')) {
+    return 'gemini';
+  }
+  return 'openai';
 }
 
 // 获取生效的 AI 配置（优先管理后台配置，回退环境变量）
@@ -33,7 +44,77 @@ export async function getEffectiveAIConfig(): Promise<AIConfig | null> {
   }
 }
 
-// OpenAI 兼容的流式聊天请求
+// Gemini 反代地址兼容：用户只填域名根（如 https://gemini.example.com）时自动补全 /v1beta
+function normalizeGeminiBaseURL(baseURL: string): string {
+  let base = baseURL.replace(/\/+$/, '');
+  if (!/\/v1beta$/.test(base)) {
+    base = `${base}/v1beta`;
+  }
+  return base;
+}
+
+function toGeminiContents(messages: ChatMessage[]) {
+  return messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+}
+
+// Gemini 原生接口请求（支持流式 alt=sse 与非流式 generateContent）
+async function requestGeminiChat(
+  messages: ChatMessage[],
+  config: {
+    apiKey: string;
+    baseURL: string;
+    model: string;
+    temperature: number;
+    maxTokens: number;
+  },
+  enableStreaming: boolean,
+): Promise<ReadableStream | Response> {
+  const base = normalizeGeminiBaseURL(config.baseURL);
+  const systemText = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n');
+  const body: any = {
+    contents: toGeminiContents(messages),
+    generationConfig: {
+      temperature: config.temperature,
+      maxOutputTokens: config.maxTokens,
+    },
+  };
+  if (systemText) {
+    body.systemInstruction = { parts: [{ text: systemText }] };
+  }
+
+  const action = enableStreaming
+    ? 'streamGenerateContent?alt=sse'
+    : 'generateContent';
+  const url = `${base}/models/${encodeURIComponent(config.model)}:${action}&key=${encodeURIComponent(config.apiKey)}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': config.apiKey,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(
+      `AI API error: ${response.status} ${response.statusText}${errText ? ` - ${errText.slice(0, 300)}` : ''}`,
+    );
+  }
+
+  return enableStreaming ? response.body! : response;
+}
+
+// AI 聊天请求（自动识别 OpenAI 兼容接口与 Gemini 原生接口）
 export async function streamOpenAIChat(
   messages: ChatMessage[],
   config: {
@@ -45,6 +126,10 @@ export async function streamOpenAIChat(
   },
   enableStreaming = true
 ): Promise<ReadableStream | Response> {
+  if (detectAIFormat(config.baseURL) === 'gemini') {
+    return requestGeminiChat(messages, config, enableStreaming);
+  }
+
   const baseURL = config.baseURL.replace(/\/+$/, '');
   const response = await fetch(`${baseURL}/chat/completions`, {
     method: 'POST',
@@ -62,16 +147,35 @@ export async function streamOpenAIChat(
   });
 
   if (!response.ok) {
+    const errText = await response.text().catch(() => '');
     throw new Error(
-      `AI API error: ${response.status} ${response.statusText}`
+      `AI API error: ${response.status} ${response.statusText}${errText ? ` - ${errText.slice(0, 300)}` : ''}`,
     );
   }
 
   return enableStreaming ? response.body! : response;
 }
 
-// 转换为 SSE 格式
-export function transformToSSE(stream: ReadableStream): ReadableStream {
+// 从响应 JSON 中提取文本内容（兼容 OpenAI 与 Gemini 格式）
+export function extractAIContent(data: any, format: AIFormat): string {
+  if (format === 'gemini') {
+    const parts = data?.candidates?.[0]?.content?.parts;
+    if (Array.isArray(parts)) {
+      return parts
+        .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
+        .join('');
+    }
+    if (typeof data?.text === 'string') return data.text;
+    return '';
+  }
+  return data?.choices?.[0]?.message?.content || '';
+}
+
+// 转换为 SSE 格式（兼容 OpenAI SSE 与 Gemini SSE/NDJSON）
+export function transformToSSE(
+  stream: ReadableStream,
+  format: AIFormat = 'openai',
+): ReadableStream {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
 
@@ -80,6 +184,24 @@ export function transformToSSE(stream: ReadableStream): ReadableStream {
       let buffer = '';
       let contentBuffer = '';
       let inThinkingBlock = false;
+
+      const extractDelta = (json: any): string => {
+        if (format === 'gemini') {
+          const parts = json?.candidates?.[0]?.content?.parts;
+          if (Array.isArray(parts)) {
+            return parts
+              .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
+              .join('');
+          }
+          if (typeof json?.text === 'string') return json.text;
+          return '';
+        }
+        return (
+          json?.choices?.[0]?.delta?.content ||
+          json?.choices?.[0]?.message?.content ||
+          ''
+        );
+      };
 
       try {
         while (true) {
@@ -94,8 +216,13 @@ export function transformToSSE(stream: ReadableStream): ReadableStream {
           const lines = parts.filter((line) => line.trim() !== '');
 
           for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
+            let data = '';
+            if (line.startsWith('data: ')) {
+              data = line.slice(6).trim();
+            } else if (format === 'gemini') {
+              // Gemini 流式接口可能返回 NDJSON（无 data: 前缀）
+              data = line.trim();
+            }
             if (!data) continue;
 
             if (data === '[DONE]') {
@@ -107,10 +234,7 @@ export function transformToSSE(stream: ReadableStream): ReadableStream {
 
             try {
               const json = JSON.parse(data);
-              const textDelta =
-                json.choices?.[0]?.delta?.content ||
-                json.choices?.[0]?.message?.content ||
-                '';
+              const textDelta = extractDelta(json);
               if (textDelta) {
                 contentBuffer += textDelta;
                 if (contentBuffer.includes('<think>')) {
@@ -124,14 +248,11 @@ export function transformToSSE(stream: ReadableStream): ReadableStream {
                   inThinkingBlock = false;
                 }
                 if (!inThinkingBlock) {
-                  const outputText = contentBuffer;
-                  if (outputText) {
-                    controller.enqueue(
-                      new TextEncoder().encode(
-                        `data: ${JSON.stringify({ content: outputText })}\n\n`
-                      )
-                    );
-                  }
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      `data: ${JSON.stringify({ content: contentBuffer })}\n\n`
+                    )
+                  );
                 }
               }
             } catch (err) {
@@ -190,7 +311,8 @@ export async function generateAIComments({
   );
 
   const data = await (response as Response).json();
-  let content = data.choices?.[0]?.message?.content || '';
+  const format = detectAIFormat(aiConfig.CustomBaseURL);
+  let content = extractAIContent(data, format);
 
   // 提取 JSON 数组
   const jsonMatch = content.match(/\[[\s\S]*\]/);
