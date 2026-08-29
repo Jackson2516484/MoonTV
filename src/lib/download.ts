@@ -1,86 +1,75 @@
-﻿/* eslint-disable no-console */
+/* eslint-disable no-console */
 
-// 解析相对 URL 为绝对 URL
-function resolveSegmentUrl(base: string, segment: string): string {
+// 获取原始地址的 Referer（默认用其自身域名，规避防盗链）
+function getReferer(url: string): string {
   try {
-    return new URL(segment, base).href;
+    return new URL(url).origin;
   } catch (err) {
-    return segment;
+    return '';
   }
 }
 
-function getBaseUrl(m3u8Url: string): string {
-  try {
-    const url = new URL(m3u8Url);
-    if (url.pathname.endsWith('.m3u8')) {
-      url.pathname = url.pathname.substring(0, url.pathname.lastIndexOf('/') + 1);
-    } else if (!url.pathname.endsWith('/')) {
-      url.pathname += '/';
-    }
-    return url.protocol + '//' + url.host + url.pathname;
-  } catch (err) {
-    return m3u8Url.endsWith('/') ? m3u8Url : m3u8Url + '/';
-  }
+// 构建下载代理地址
+function getDownloadProxyUrl(
+  url: string,
+  referer: string,
+  mode: 'segments' | 'raw' = 'raw',
+): string {
+  const params = new URLSearchParams({ url, mode });
+  if (referer) params.set('referer', referer);
+  return `/api/download?${params.toString()}`;
 }
 
-// 解析 m3u8 播放列表，返回分片 URL 列表
-async function fetchPlaylistSegments(
-  m3u8Url: string,
-  isMaster: boolean
-): Promise<string[]> {
-  const response = await fetch(m3u8Url);
-  if (!response.ok) {
-    throw new Error(`获取播放列表失败: HTTP ${response.status}`);
-  }
-  const text = await response.text();
-  const lines = text.split(/\r?\n/);
-
-  // 主列表：取第一个变体（清晰度最高优先取最后一个，通常最后一个质量最高）
-  if (isMaster || text.includes('#EXT-X-STREAM-INF:')) {
-    const variantUrls: string[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.startsWith('#EXT-X-STREAM-INF:')) {
-        if (i + 1 < lines.length && lines[i + 1].trim() && !lines[i + 1].trim().startsWith('#')) {
-          variantUrls.push(resolveSegmentUrl(getBaseUrl(m3u8Url), lines[i + 1].trim()));
-        }
-      }
+// 带重试的请求
+async function fetchWithRetry(url: string, retries = 2): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return response;
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
     }
-    if (variantUrls.length > 0) {
-      // 取最后一个（通常最高码率）
-      return fetchPlaylistSegments(variantUrls[variantUrls.length - 1], false);
+    if (attempt < retries) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
     }
   }
-
-  // 媒体列表：收集分片
-  const segments: string[] = [];
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    segments.push(resolveSegmentUrl(getBaseUrl(m3u8Url), line));
-  }
-  if (segments.length === 0) {
-    throw new Error('播放列表中没有找到分片');
-  }
-  return segments;
+  throw lastError || new Error('下载失败');
 }
 
-// 下载 m3u8 视频（合并分片为单个 mp4/ts 文件）
+// 下载 m3u8 视频（分片经服务端代理拉取，规避 CORS / 防盗链 / 混合内容限制）
 export async function downloadM3u8(
   m3u8Url: string,
   title: string,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
 ): Promise<void> {
-  const segments = await fetchPlaylistSegments(m3u8Url, true);
+  const referer = getReferer(m3u8Url);
 
+  // 1. 服务端解析播放列表，返回可下载的同源分片地址
+  const listResponse = await fetch(
+    getDownloadProxyUrl(m3u8Url, referer, 'segments'),
+    { cache: 'no-store' },
+  );
+  if (!listResponse.ok) {
+    const data = await listResponse.json().catch(() => ({}));
+    throw new Error(
+      (data && (data as any).error) ||
+        `获取播放列表失败: HTTP ${listResponse.status}`,
+    );
+  }
+  const data = await listResponse.json();
+  const segments: string[] = Array.isArray(data.segments) ? data.segments : [];
+  if (segments.length === 0) {
+    throw new Error('播放列表中没有找到分片');
+  }
+
+  // 2. 逐片下载并合并
   const chunks: BlobPart[] = [];
   let downloaded = 0;
 
   for (let i = 0; i < segments.length; i++) {
-    const response = await fetch(segments[i]);
-    if (!response.ok) {
-      throw new Error(`下载分片 ${i + 1}/${segments.length} 失败: HTTP ${response.status}`);
-    }
+    const response = await fetchWithRetry(segments[i]);
     const buffer = await response.arrayBuffer();
     chunks.push(buffer);
     downloaded += buffer.byteLength;
@@ -98,7 +87,7 @@ export async function downloadM3u8(
   setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
 }
 
-// 普通视频直接下载
+// 普通视频直接下载（浏览器导航下载，不受 CORS 限制）
 export function downloadDirect(url: string, title: string): void {
   const a = document.createElement('a');
   a.href = url;

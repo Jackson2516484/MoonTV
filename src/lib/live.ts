@@ -29,7 +29,7 @@ export function isM3UContent(content: string): boolean {
 
 export function parseM3U(
   sourceKey: string,
-  content: string
+  content: string,
 ): { tvgUrl: string; channels: LiveChannel[] } {
   const lines = content.split(/\r?\n/);
   let tvgUrl = '';
@@ -110,7 +110,7 @@ export function parseM3U(
 // 解析纯文本直播列表（每行一个"频道名,url"）
 export function parseTxtLive(
   sourceKey: string,
-  content: string
+  content: string,
 ): { tvgUrl: string; channels: LiveChannel[] } {
   const lines = content.split(/\r?\n/);
   const channels: LiveChannel[] = [];
@@ -142,7 +142,7 @@ export function parseTxtLive(
 // 解析频道内容（自动识别 M3U / TXT）
 export function parseLiveContent(
   sourceKey: string,
-  content: string
+  content: string,
 ): { tvgUrl: string; channels: LiveChannel[] } {
   if (isM3UContent(content)) {
     return parseM3U(sourceKey, content);
@@ -157,7 +157,7 @@ export function getBaseUrl(m3u8Url: string) {
     if (url.pathname.endsWith('.m3u8')) {
       url.pathname = url.pathname.substring(
         0,
-        url.pathname.lastIndexOf('/') + 1
+        url.pathname.lastIndexOf('/') + 1,
       );
     } else if (!url.pathname.endsWith('/')) {
       url.pathname += '/';
@@ -205,7 +205,7 @@ export function resolveUrl(baseUrl: string, relativePath: string) {
 // 将相对频道 URL 转为绝对 URL（基于 m3u 地址）
 export function normalizeChannelUrls(
   channels: LiveChannel[],
-  baseM3uUrl: string
+  baseM3uUrl: string,
 ): LiveChannel[] {
   return channels.map((channel) => {
     if (
@@ -216,4 +216,21 @@ export function normalizeChannelUrls(
     }
     return { ...channel, url: resolveUrl(baseM3uUrl, channel.url) };
   });
+}
+// 判断是否为 m3u8 直播地址
+export function isM3u8Url(url: string): boolean {
+  return /\.m3u8?($|\?)/i.test(url);
+}
+
+// 将频道地址转为可播放的同源代理地址（规避 CORS / 混合内容 / 防盗链）
+export function getLivePlaybackUrl(
+  url: string,
+  ua?: string,
+  referer?: string,
+): string {
+  const isM3u8 = isM3u8Url(url);
+  const params = new URLSearchParams({ url });
+  if (ua) params.set('ua', ua);
+  if (referer) params.set('referer', referer);
+  return `/api/live/play/${isM3u8 ? 'stream.m3u8' : 'stream.ts'}?${params.toString()}`;
 }

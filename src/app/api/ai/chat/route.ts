@@ -1,7 +1,8 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { AIConfig } from '@/lib/admin.types';
 import {
   ChatMessage,
   getEffectiveAIConfig,
@@ -21,6 +22,12 @@ interface ChatRequest {
     source_name?: string;
   };
   history?: ChatMessage[];
+  // 客户端自定义 AI 设置（优先于服务端配置）
+  aiSettings?: {
+    apiKey?: string;
+    baseURL?: string;
+    model?: string;
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -31,24 +38,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '请先登录' }, { status: 401 });
     }
 
-    // 2. 获取 AI 配置
-    const aiConfig = await getEffectiveAIConfig();
-    if (!aiConfig) {
-      return NextResponse.json(
-        { error: 'AI功能未启用，请在管理后台或环境变量中配置' },
-        { status: 400 }
-      );
-    }
-
-    // 3. 解析请求
+    // 2. 解析请求
     const body = (await request.json()) as ChatRequest;
     const { message, context, history = [] } = body;
 
-    if (!message || typeof message !== 'string') {
+    // 3. 获取 AI 配置（优先客户端自定义设置，回退服务端配置）
+    const clientAi = body.aiSettings;
+    let aiConfig: AIConfig | null = null;
+    if (clientAi?.apiKey && clientAi?.baseURL && clientAi?.model) {
+      aiConfig = {
+        Enabled: true,
+        CustomApiKey: clientAi.apiKey,
+        CustomBaseURL: clientAi.baseURL,
+        CustomModel: clientAi.model,
+      };
+    } else {
+      aiConfig = await getEffectiveAIConfig();
+    }
+    if (!aiConfig) {
       return NextResponse.json(
-        { error: '消息内容不能为空' },
-        { status: 400 }
+        { error: 'AI功能未启用，请在头像菜单中设置 AI 或配置环境变量' },
+        { status: 400 },
       );
+    }
+
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json({ error: '消息内容不能为空' }, { status: 400 });
     }
 
     // 4. 构建系统提示词
@@ -83,7 +98,7 @@ export async function POST(request: NextRequest) {
           temperature: aiConfig.Temperature ?? 0.7,
           maxTokens: aiConfig.MaxTokens ?? 1000,
         },
-        enableStreaming
+        enableStreaming,
       );
 
       if (enableStreaming) {
@@ -107,14 +122,11 @@ export async function POST(request: NextRequest) {
           error: 'AI 请求失败',
           details: err?.message || String(err),
         },
-        { status: 502 }
+        { status: 502 },
       );
     }
   } catch (error) {
     console.error('AI聊天API错误:', error);
-    return NextResponse.json(
-      { error: 'AI聊天请求失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'AI聊天请求失败' }, { status: 500 });
   }
 }

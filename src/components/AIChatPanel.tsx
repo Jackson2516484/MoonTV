@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, no-console */
 
 'use client';
 
@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { getLocalAISettings } from '@/lib/ai.settings';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useUser } from '@/contexts/UserContext';
 
@@ -80,13 +81,17 @@ export default function AIChatPanel({
     setStreaming(true);
 
     try {
+      const aiSettings = getLocalAISettings();
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: content,
           context,
-          history: messages.slice(1).map((m) => ({ role: m.role, content: m.content })),
+          history: messages
+            .slice(1)
+            .map((m) => ({ role: m.role, content: m.content })),
+          aiSettings: aiSettings?.enabled ? aiSettings : undefined,
         }),
       });
 
@@ -161,7 +166,7 @@ export default function AIChatPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI 请求失败');
       setMessages((prev) =>
-        prev.filter((m) => m.role === 'user' || m.content !== '')
+        prev.filter((m) => m.role === 'user' || m.content !== ''),
       );
     } finally {
       setStreaming(false);
@@ -173,7 +178,10 @@ export default function AIChatPanel({
       {
         role: 'assistant',
         content:
-          welcomeMessage || (context?.title ? `我正在观看《${context.title}》，可以问我关于这部电影的问题，或推荐类似影片。` : '你好！我是AI影视助手，可以为你推荐影片、解答剧情问题。'),
+          welcomeMessage ||
+          (context?.title
+            ? `我正在观看《${context.title}》，可以问我关于这部电影的问题，或推荐类似影片。`
+            : '你好！我是AI影视助手，可以为你推荐影片、解答剧情问题。'),
       },
     ]);
   };
@@ -286,7 +294,9 @@ export default function AIChatPanel({
             ))}
             {context?.title && (
               <button
-                onClick={() => handleSendMessage(`${context.title} 讲的什么故事？`)}
+                onClick={() =>
+                  handleSendMessage(`${context.title} 讲的什么故事？`)
+                }
                 disabled={!isLoggedIn}
                 className='rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors'
               >

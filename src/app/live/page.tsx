@@ -6,8 +6,14 @@ import { Loader2, Plus, Radio, Trash2, Upload, X } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
-import { LiveChannel, LiveSource, parseLiveContent } from '@/lib/live';
 import { castCurrentVideo } from '@/lib/cast';
+import {
+  getLivePlaybackUrl,
+  isM3u8Url,
+  LiveChannel,
+  LiveSource,
+  parseLiveContent,
+} from '@/lib/live';
 
 import PageLayout from '@/components/PageLayout';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -39,7 +45,10 @@ function saveCustomSources(sources: LiveSource[]) {
   localStorage.setItem(CUSTOM_SOURCES_KEY, JSON.stringify(sources));
 }
 
-function loadChannelCache(): Record<string, { channels: LiveChannel[]; fetchedAt: number }> {
+function loadChannelCache(): Record<
+  string,
+  { channels: LiveChannel[]; fetchedAt: number }
+> {
   try {
     const raw = localStorage.getItem(CHANNEL_CACHE_KEY);
     if (!raw) return {};
@@ -50,7 +59,7 @@ function loadChannelCache(): Record<string, { channels: LiveChannel[]; fetchedAt
 }
 
 function saveChannelCache(
-  cache: Record<string, { channels: LiveChannel[]; fetchedAt: number }>
+  cache: Record<string, { channels: LiveChannel[]; fetchedAt: number }>,
 ) {
   localStorage.setItem(CHANNEL_CACHE_KEY, JSON.stringify(cache));
 }
@@ -63,6 +72,22 @@ function LivePageClient() {
   const artPlayerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // 播放核心：单一 HLS 实例复用 + 预加载下一个频道
+  const mainHlsRef = useRef<any>(null);
+  const preloadRef = useRef<{
+    url: string;
+    hls: any;
+    video: HTMLVideoElement;
+  } | null>(null);
+  const preloadTimerRef = useRef<number | null>(null);
+  const stateRef = useRef({
+    channels: [] as LiveChannel[],
+    currentChannel: null as LiveChannel | null,
+    currentSource: null as LiveSource | null,
+    keyword: '',
+    selectedGroup: '全部',
+  });
+
   // 直播源
   const [configSources, setConfigSources] = useState<LiveSource[]>([]);
   const [customSources, setCustomSources] = useState<LiveSource[]>([]);
@@ -73,7 +98,9 @@ function LivePageClient() {
   const [channels, setChannels] = useState<LiveChannel[]>([]);
   const [channelLoading, setChannelLoading] = useState(false);
   const [channelError, setChannelError] = useState<string | null>(null);
-  const [currentChannel, setCurrentChannel] = useState<LiveChannel | null>(null);
+  const [currentChannel, setCurrentChannel] = useState<LiveChannel | null>(
+    null,
+  );
 
   // 分组 / 搜索
   const [selectedGroup, setSelectedGroup] = useState<string>('全部');
@@ -89,8 +116,20 @@ function LivePageClient() {
   // 播放
   const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
+  const [playTip, setPlayTip] = useState<string | null>(null);
 
   const allSources = [...configSources, ...customSources];
+
+  // 同步最新状态到 ref（供定时预加载使用）
+  useEffect(() => {
+    stateRef.current = {
+      channels,
+      currentChannel,
+      currentSource,
+      keyword,
+      selectedGroup,
+    };
+  }, [channels, currentChannel, currentSource, keyword, selectedGroup]);
 
   // 加载播放器库 + 直播源
   useEffect(() => {
@@ -121,6 +160,15 @@ function LivePageClient() {
     fetchSources();
 
     return () => {
+      cancelPreload();
+      if (mainHlsRef.current) {
+        try {
+          mainHlsRef.current.destroy();
+        } catch (err) {
+          // 忽略
+        }
+        mainHlsRef.current = null;
+      }
       if (artPlayerRef.current) {
         artPlayerRef.current.destroy();
         artPlayerRef.current = null;
@@ -144,19 +192,23 @@ function LivePageClient() {
   // 选择直播源：加载频道列表
   const handleSourceSelect = async (
     source: LiveSource,
-    autoChannelId?: string
+    autoChannelId?: string,
   ) => {
     setCurrentSource(source);
     setCurrentChannel(null);
     setChannels([]);
+    cancelPreload();
     setChannelError(null);
 
     // 文件导入的源已内嵌频道
-    if (Array.isArray((source as any).channels) && (source as any).channels.length > 0) {
+    if (
+      Array.isArray((source as any).channels) &&
+      (source as any).channels.length > 0
+    ) {
       setChannels((source as any).channels as LiveChannel[]);
       if (autoChannelId) {
         const found = (source as any).channels.find(
-          (ch: LiveChannel) => ch.id === autoChannelId
+          (ch: LiveChannel) => ch.id === autoChannelId,
         );
         if (found) handleChannelSelect(found);
       }
@@ -191,7 +243,9 @@ function LivePageClient() {
         throw new Error(data.error || '加载频道失败');
       }
 
-      const nextChannels: LiveChannel[] = Array.isArray(data.channels) ? data.channels : [];
+      const nextChannels: LiveChannel[] = Array.isArray(data.channels)
+        ? data.channels
+        : [];
       setChannels(nextChannels);
 
       const nextCache = loadChannelCache();
@@ -210,7 +264,10 @@ function LivePageClient() {
   };
 
   // 分组列表
-  const groups = ['全部', ...Array.from(new Set(channels.map((ch) => ch.group)))];
+  const groups = [
+    '全部',
+    ...Array.from(new Set(channels.map((ch) => ch.group))),
+  ];
 
   const filteredChannels = channels.filter((ch) => {
     const groupOk = selectedGroup === '全部' || ch.group === selectedGroup;
@@ -219,31 +276,107 @@ function LivePageClient() {
     return groupOk && keywordOk;
   });
 
-  // 选择频道播放
-  const handleChannelSelect = (channel: LiveChannel) => {
-    setCurrentChannel(channel);
-    setPlayError(null);
-
-    if (artPlayerRef.current) {
-      artPlayerRef.current.destroy();
-      artPlayerRef.current = null;
+  // 取消预加载
+  const cancelPreload = () => {
+    if (preloadTimerRef.current) {
+      window.clearTimeout(preloadTimerRef.current);
+      preloadTimerRef.current = null;
     }
+    if (preloadRef.current) {
+      try {
+        preloadRef.current.hls?.destroy();
+      } catch (err) {
+        // 忽略
+      }
+      preloadRef.current.video?.remove();
+      preloadRef.current = null;
+    }
+  };
 
-    setIsVideoLoading(true);
+  // 为指定 video 创建 HLS 实例（带自动恢复）
+  const createHlsForVideo = (video: HTMLVideoElement, url: string) => {
+    if (!Hls) {
+      console.error('HLS.js 未加载');
+      return;
+    }
+    const hls = new Hls({
+      debug: false,
+      enableWorker: true,
+      lowLatencyMode: true,
+      liveSyncDurationCount: 2,
+      liveMaxLatencyDurationCount: 6,
+      maxBufferLength: 20,
+      backBufferLength: 30,
+      maxBufferSize: 60 * 1000 * 1000,
+      startPosition: -1,
+    });
+    (hls as any).moontvRetries = 0;
+    hls.loadSource(url);
+    hls.attachMedia(video);
+    video.hls = hls;
+    mainHlsRef.current = hls;
 
-    // 等待容器渲染
+    hls.on(Hls.Events.ERROR, (event: any, data: any) => {
+      if (!data.fatal) return;
+      switch (data.type) {
+        case Hls.ErrorTypes.NETWORK_ERROR: {
+          const retries = (hls as any).moontvRetries || 0;
+          if (retries < 3) {
+            (hls as any).moontvRetries = retries + 1;
+            setTimeout(
+              () => {
+                try {
+                  hls.startLoad();
+                } catch (err) {
+                  // 忽略
+                }
+              },
+              800 * (retries + 1),
+            );
+          } else {
+            setIsVideoLoading(false);
+            setPlayError(t('livePlayFailed'));
+            try {
+              hls.destroy();
+            } catch (err) {
+              // 忽略
+            }
+            if (mainHlsRef.current === hls) mainHlsRef.current = null;
+          }
+          break;
+        }
+        case Hls.ErrorTypes.MEDIA_ERROR:
+          hls.recoverMediaError();
+          break;
+        default:
+          setIsVideoLoading(false);
+          setPlayError(t('livePlayFailed'));
+          try {
+            hls.destroy();
+          } catch (err) {
+            // 忽略
+          }
+          if (mainHlsRef.current === hls) mainHlsRef.current = null;
+          break;
+      }
+    });
+  };
+
+  // 首次创建播放器
+  const initPlayer = (channel: LiveChannel) => {
     setTimeout(() => {
       try {
         if (!Artplayer || !artRef.current) {
           setIsVideoLoading(false);
-          setPlayError('播放器加载中，请稍后再试');
+          setPlayError(t('playerLoading'));
           return;
         }
 
         Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2];
+        const targetUrl = getLivePlaybackUrl(channel.url, currentSource?.ua);
         artPlayerRef.current = new Artplayer({
           container: artRef.current,
-          url: channel.url,
+          url: targetUrl,
           volume: 0.8,
           isLive: true,
           muted: false,
@@ -269,41 +402,8 @@ function LivePageClient() {
             crossOrigin: 'anonymous',
           },
           customType: {
-            m3u8: function (video: HTMLVideoElement, url: string) {
-              if (!Hls) {
-                console.error('HLS.js 未加载');
-                return;
-              }
-              if (video.hls) {
-                video.hls.destroy();
-              }
-              const hls = new Hls({
-                debug: false,
-                enableWorker: true,
-                lowLatencyMode: true,
-                maxBufferLength: 30,
-                backBufferLength: 30,
-                maxBufferSize: 60 * 1000 * 1000,
-              });
-              hls.loadSource(url);
-              hls.attachMedia(video);
-              video.hls = hls;
-
-              hls.on(Hls.Events.ERROR, function (event: any, data: any) {
-                if (data.fatal) {
-                  switch (data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR:
-                      hls.startLoad();
-                      break;
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                      hls.recoverMediaError();
-                      break;
-                    default:
-                      hls.destroy();
-                      break;
-                  }
-                }
-              });
+            m3u8: (video: HTMLVideoElement, url: string) => {
+              createHlsForVideo(video, url);
             },
           },
         });
@@ -313,20 +413,262 @@ function LivePageClient() {
         });
         artPlayerRef.current.on('error', () => {
           setIsVideoLoading(false);
-          setPlayError('播放失败，请尝试其他频道');
+          setPlayError(t('livePlayFailed'));
         });
         artPlayerRef.current.on('video:error', () => {
           setIsVideoLoading(false);
-          setPlayError('播放失败，请尝试其他频道');
+          setPlayError(t('livePlayFailed'));
         });
       } catch (err) {
         console.error('创建播放器失败:', err);
         setIsVideoLoading(false);
-        setPlayError('播放器创建失败');
+        setPlayError(t('playerCreateFailed'));
       }
     }, 50);
   };
 
+  // 在已有播放器上切换频道（复用同一实例，避免销毁重建导致卡顿/重音）
+  const playChannelInPlayer = (channel: LiveChannel) => {
+    const player = artPlayerRef.current;
+    if (!player) return;
+    const targetUrl = getLivePlaybackUrl(channel.url, currentSource?.ua);
+    const video = player.video as HTMLVideoElement;
+
+    // 直链流：销毁 HLS，直接设置 src（经代理，规避混合内容/防盗链）
+    if (!isM3u8Url(channel.url)) {
+      if (video.hls) {
+        try {
+          video.hls.stopLoad();
+          video.hls.detachMedia();
+          video.hls.destroy();
+        } catch (err) {
+          // 忽略
+        }
+        video.hls = null;
+        mainHlsRef.current = null;
+      }
+      video.src = targetUrl;
+      player.play();
+      setIsVideoLoading(false);
+      return;
+    }
+
+    // m3u8：复用同一 HLS 实例，快速无缝切换
+    const hls = video.hls || mainHlsRef.current;
+    if (hls) {
+      try {
+        (hls as any).moontvRetries = 0;
+        hls.stopLoad();
+        hls.detachMedia();
+        hls.loadSource(targetUrl);
+        hls.attachMedia(video);
+        hls.startLoad();
+        mainHlsRef.current = hls;
+        video.hls = hls;
+        player.play();
+      } catch (err) {
+        // 复用失败则重建
+        try {
+          hls.destroy();
+        } catch (err2) {
+          // 忽略
+        }
+        video.hls = null;
+        mainHlsRef.current = null;
+        createHlsForVideo(video, targetUrl);
+        player.play();
+      }
+      return;
+    }
+
+    createHlsForVideo(video, targetUrl);
+    player.play();
+  };
+
+  // 尝试使用预加载的频道（已缓冲，切换近乎无缝）
+  const tryConsumePreload = (channel: LiveChannel): boolean => {
+    const preloaded = preloadRef.current;
+    const player = artPlayerRef.current;
+    if (!preloaded || !player) return false;
+    const targetUrl = getLivePlaybackUrl(channel.url, currentSource?.ua);
+    if (preloaded.url !== targetUrl) return false;
+
+    try {
+      const video = player.video as HTMLVideoElement;
+      const oldHls = mainHlsRef.current;
+      if (oldHls && oldHls !== preloaded.hls) {
+        try {
+          oldHls.stopLoad();
+          oldHls.detachMedia();
+          oldHls.destroy();
+        } catch (err) {
+          // 忽略
+        }
+      }
+
+      let transferred = false;
+      if (typeof preloaded.hls.transferMedia === 'function') {
+        const mse = preloaded.hls.transferMedia();
+        if (mse && typeof URL !== 'undefined') {
+          video.src = URL.createObjectURL(mse);
+          preloaded.hls.attachMedia(video);
+          transferred = true;
+        }
+      }
+      if (!transferred) {
+        preloaded.hls.detachMedia();
+        preloaded.hls.attachMedia(video);
+        preloaded.hls.startLoad();
+      }
+      mainHlsRef.current = preloaded.hls;
+      video.hls = preloaded.hls;
+      preloaded.video.remove();
+      preloadRef.current = null;
+      setIsVideoLoading(false);
+      player.play();
+      return true;
+    } catch (err) {
+      try {
+        preloaded.hls?.destroy();
+      } catch (err2) {
+        // 忽略
+      }
+      preloaded.video?.remove();
+      preloadRef.current = null;
+      return false;
+    }
+  };
+
+  // 预加载下一个频道（当前频道稳定播放约 6 秒后开始）
+  const startPreload = () => {
+    const s = stateRef.current;
+    const current = s.currentChannel;
+    const source = s.currentSource;
+    if (!current || !source || s.channels.length === 0) return;
+    if (!Hls || typeof window === 'undefined') return;
+    if (preloadRef.current) cancelPreload();
+
+    const list = s.channels.filter((ch) => {
+      const groupOk =
+        s.selectedGroup === '全部' || ch.group === s.selectedGroup;
+      const keywordOk =
+        !s.keyword || ch.name.toLowerCase().includes(s.keyword.toLowerCase());
+      return groupOk && keywordOk;
+    });
+    const idx = list.findIndex((ch) => ch.id === current.id);
+    if (idx < 0 || list.length < 2) return;
+    const next = list[(idx + 1) % list.length];
+    if (!next || next.id === current.id) return;
+    if (!isM3u8Url(next.url)) return;
+
+    const targetUrl = getLivePlaybackUrl(next.url, source.ua);
+    const video = document.createElement('video');
+    video.muted = true;
+    video.preload = 'auto';
+    video.style.display = 'none';
+    document.body.appendChild(video);
+
+    const hls = new Hls({
+      debug: false,
+      enableWorker: true,
+      lowLatencyMode: true,
+      maxBufferLength: 10,
+      backBufferLength: 0,
+    });
+    hls.loadSource(targetUrl);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.ERROR, () => {
+      cancelPreload();
+    });
+    preloadRef.current = { url: targetUrl, hls, video };
+  };
+
+  // 选择频道播放（无缝切换）
+  const handleChannelSelect = (channel: LiveChannel) => {
+    setCurrentChannel(channel);
+    setPlayError(null);
+    setIsVideoLoading(true);
+
+    if (!artPlayerRef.current) {
+      // 首次选择：创建播放器
+      initPlayer(channel);
+      return;
+    }
+
+    // 命中预加载 → 近乎无缝切换
+    if (tryConsumePreload(channel)) return;
+
+    // 常规切换：复用同一播放器
+    playChannelInPlayer(channel);
+  };
+
+  // 当前频道稳定播放后预加载下一个频道
+  useEffect(() => {
+    if (!currentChannel) {
+      cancelPreload();
+      return;
+    }
+    if (preloadTimerRef.current) {
+      window.clearTimeout(preloadTimerRef.current);
+    }
+    preloadTimerRef.current = window.setTimeout(() => {
+      startPreload();
+    }, 6000);
+    return () => {
+      if (preloadTimerRef.current) {
+        window.clearTimeout(preloadTimerRef.current);
+        preloadTimerRef.current = null;
+      }
+    };
+  }, [currentChannel?.id, currentChannel?.url]);
+
+  // 复制频道地址
+  const handleCopyUrl = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setPlayTip(t('copied'));
+    } catch (err) {
+      setPlayTip(url);
+    }
+    window.setTimeout(() => setPlayTip(null), 3000);
+  };
+
+  // 用 VLC 播放（桌面端本地服务直接拉起；移动端/回退走 vlc:// 协议）
+  const handlePlayInVlc = async () => {
+    if (!currentChannel) return;
+    const rawUrl = currentChannel.url;
+    try {
+      const res = await fetch('/api/vlc/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: rawUrl }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) {
+        setPlayTip(t('vlcOpenTip'));
+        window.setTimeout(() => setPlayTip(null), 3000);
+        return;
+      }
+      throw new Error(data?.error || 'VLC unavailable');
+    } catch (err) {
+      try {
+        const a = document.createElement('a');
+        a.href = `vlc://${rawUrl}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err2) {
+        // 忽略
+      }
+      setPlayTip(t('vlcFallbackTip'));
+      window.setTimeout(() => setPlayTip(null), 5000);
+      try {
+        await navigator.clipboard.writeText(rawUrl);
+      } catch (err2) {
+        // 忽略
+      }
+    }
+  };
   const handleCast = () => {
     const video = artPlayerRef.current?.video as HTMLVideoElement | undefined;
     const result = castCurrentVideo(video);
@@ -475,7 +817,11 @@ function LivePageClient() {
                 disabled={importing}
                 className='flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700 disabled:opacity-50'
               >
-                {importing ? <Loader2 className='w-4 h-4 animate-spin' /> : <Plus className='w-4 h-4' />}
+                {importing ? (
+                  <Loader2 className='w-4 h-4 animate-spin' />
+                ) : (
+                  <Plus className='w-4 h-4' />
+                )}
                 {t('addByUrl')}
               </button>
               <button
@@ -508,7 +854,9 @@ function LivePageClient() {
               </button>
             </div>
             {importError && (
-              <p className='text-sm text-red-600 dark:text-red-400'>{importError}</p>
+              <p className='text-sm text-red-600 dark:text-red-400'>
+                {importError}
+              </p>
             )}
           </div>
         )}
@@ -550,8 +898,8 @@ function LivePageClient() {
           </div>
         )}
 
-        {/* 播放器 */}
-        {(currentChannel || isVideoLoading) && (
+        {/* 播放器（选中源后常驻，切换时不会销毁容器） */}
+        {(currentSource || currentChannel || isVideoLoading) && (
           <div className='relative'>
             <div
               ref={artRef}
@@ -563,8 +911,26 @@ function LivePageClient() {
               </div>
             )}
             {playError && (
-              <div className='absolute inset-x-0 bottom-0 bg-red-600/90 text-white text-xs px-3 py-2'>
-                {playError}
+              <div className='absolute inset-x-0 bottom-0 bg-red-600/90 text-white text-xs px-3 py-2 flex items-center justify-between gap-2'>
+                <span className='min-w-0 break-words'>{playError}</span>
+                <div className='flex items-center gap-2 flex-shrink-0'>
+                  {currentChannel && (
+                    <button
+                      onClick={() => handleChannelSelect(currentChannel)}
+                      className='px-2 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors'
+                    >
+                      重试
+                    </button>
+                  )}
+                  {currentChannel && (
+                    <button
+                      onClick={handlePlayInVlc}
+                      className='px-2 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors'
+                    >
+                      {t('playInVlc')}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -594,16 +960,59 @@ function LivePageClient() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={handleCast}
-              className='flex-shrink-0 flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors'
-            >
-              <svg className='w-4 h-4' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
-                <path d='M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6' />
-                <circle cx='2' cy='20' r='1' />
-              </svg>
-              {t('cast')}
-            </button>
+            <div className='flex items-center gap-2 flex-shrink-0'>
+              <button
+                onClick={handlePlayInVlc}
+                title={t('playInVlc')}
+                className='flex items-center gap-1 rounded-lg bg-orange-500/10 dark:bg-orange-500/20 px-3 py-1.5 text-sm text-orange-600 dark:text-orange-400 hover:bg-orange-500/20 dark:hover:bg-orange-500/30 transition-colors'
+              >
+                <svg
+                  className='w-4 h-4'
+                  viewBox='0 0 24 24'
+                  fill='currentColor'
+                >
+                  <path d='M12 2 3.5 20h2.8l2.2-4.5h7L17.7 20h2.8L12 2zm0 5.2 2.9 6.3H9.1L12 7.2z' />
+                </svg>
+                {t('playInVlc')}
+              </button>
+              <button
+                onClick={() => handleCopyUrl(currentChannel.url)}
+                title={t('copyUrl')}
+                className='flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors'
+              >
+                <svg
+                  className='w-4 h-4'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                >
+                  <rect x='9' y='9' width='13' height='13' rx='2' />
+                  <path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1' />
+                </svg>
+                {t('copyUrl')}
+              </button>
+              <button
+                onClick={handleCast}
+                className='flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors'
+              >
+                <svg
+                  className='w-4 h-4'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                >
+                  <path d='M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6' />
+                  <circle cx='2' cy='20' r='1' />
+                </svg>
+                {t('cast')}
+              </button>
+            </div>
           </div>
         )}
 
@@ -694,7 +1103,9 @@ function LivePageClient() {
                         </div>
                         <div
                           className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                            active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+                            active
+                              ? 'bg-green-500'
+                              : 'bg-gray-300 dark:bg-gray-600'
                           }`}
                         />
                       </button>
@@ -706,6 +1117,13 @@ function LivePageClient() {
           </div>
         </div>
       </div>
+
+      {/* 播放提示浮层（VLC / 复制等） */}
+      {playTip && (
+        <div className='fixed bottom-24 left-1/2 -translate-x-1/2 z-[8000] flex items-center gap-2 rounded-full bg-gray-900/90 dark:bg-gray-700/90 text-white text-sm px-4 py-2 shadow-lg'>
+          {playTip}
+        </div>
+      )}
     </PageLayout>
   );
 }

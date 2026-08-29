@@ -1,10 +1,11 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
 
 'use client';
 
 import { Bot, RefreshCw, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { getLocalAISettings } from '@/lib/ai.settings';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 interface AIComment {
@@ -41,6 +42,13 @@ export default function AIComments({ movieName, movieInfo }: AICommentsProps) {
         _t: Date.now().toString(),
       });
       if (movieInfo) params.append('info', movieInfo);
+
+      const aiSettings = getLocalAISettings();
+      if (aiSettings?.enabled) {
+        params.append('aiKey', aiSettings.apiKey);
+        params.append('aiBase', aiSettings.baseURL);
+        params.append('aiModel', aiSettings.model);
+      }
 
       const response = await fetch(`/api/ai-comments?${params.toString()}`, {
         cache: 'no-store',
