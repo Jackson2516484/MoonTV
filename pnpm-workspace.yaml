@@ -1,0 +1,5 @@
+allowBuilds:
+  '@parcel/watcher': true
+  sharp: false
+  unrs-resolver: true
+  '@capacitor/cli': true

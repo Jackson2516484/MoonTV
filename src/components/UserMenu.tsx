@@ -1,0 +1,113 @@
+﻿'use client';
+
+import { Menu, Transition } from '@headlessui/react';
+import { LogIn, LogOut, Settings, User, Globe, Info } from 'lucide-react';
+import Link from 'next/link';
+import { Fragment, useState } from 'react';
+
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useUser } from '@/contexts/UserContext';
+import { VersionDisplay } from '@/components/VersionDisplay';
+import LocalSettingsModal from './LocalSettingsModal';
+
+export default function UserMenu() {
+  const { t } = useLanguage();
+  const { isLoggedIn, username, logout } = useUser();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  return (
+    <>
+      <LocalSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
+
+      <Menu as='div' className='relative inline-block text-left z-[5001]'>
+        <div>
+          <Menu.Button className='flex items-center justify-center w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500'>
+            <User className='w-5 h-5 text-gray-600 dark:text-gray-300' />
+          </Menu.Button>
+        </div>
+        <Transition
+          as={Fragment}
+          enter='transition ease-out duration-100'
+          enterFrom='transform opacity-0 scale-95'
+          enterTo='transform opacity-100 scale-100'
+          leave='transition ease-in duration-75'
+          leaveFrom='transform opacity-100 scale-100'
+          leaveTo='transform opacity-0 scale-95'
+        >
+          <Menu.Items className='absolute right-0 mt-2 w-52 origin-top-right divide-y divide-gray-100 dark:divide-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none z-[5002]'>
+            {/* 登录状态 */}
+            <div className='p-1'>
+              {isLoggedIn ? (
+                <>
+                  {username && (
+                    <div className='px-3 py-2 text-sm text-gray-500 dark:text-gray-400 truncate'>
+                      {username}
+                    </div>
+                  )}
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        onClick={() => logout()}
+                        className={`${
+                          active
+                            ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                            : 'text-gray-700 dark:text-gray-200'
+                        } group flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all`}
+                      >
+                        <LogOut className='mr-3 h-4 w-4 text-gray-400 group-hover:text-green-500' />
+                        {t('logout')}
+                      </button>
+                    )}
+                  </Menu.Item>
+                </>
+              ) : (
+                <Menu.Item>
+                  {({ active }) => (
+                    <Link
+                      href='/login'
+                      className={`${
+                        active
+                          ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                          : 'text-gray-700 dark:text-gray-200'
+                      } group flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all`}
+                    >
+                      <LogIn className='mr-3 h-4 w-4 text-gray-400 group-hover:text-green-500' />
+                      {t('login')}
+                    </Link>
+                  )}
+                </Menu.Item>
+              )}
+            </div>
+
+            {/* 设置 -> 语言设置 */}
+            <div className='p-1'>
+              <Menu.Item>
+                {({ active }) => (
+                  <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className={`${
+                      active
+                        ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400'
+                        : 'text-gray-700 dark:text-gray-200'
+                    } group flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all`}
+                  >
+                    <Globe className='mr-3 h-4 w-4 text-gray-400 group-hover:text-green-500' />
+                    {t('language')}
+                  </button>
+                )}
+              </Menu.Item>
+            </div>
+
+            {/* 版本号 -> 捐赠二维码 */}
+            <div className='p-2 bg-gray-50/50 dark:bg-gray-800/50 rounded-b-xl'>
+               <VersionDisplay className="w-full flex items-center justify-center gap-2 py-1 text-[10px] font-mono text-gray-400 dark:text-gray-500 hover:text-green-500 transition-colors cursor-pointer" />
+            </div>
+          </Menu.Items>
+        </Transition>
+      </Menu>
+    </>
+  );
+}

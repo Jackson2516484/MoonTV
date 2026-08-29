@@ -1,0 +1,120 @@
+﻿/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
+
+import { NextRequest, NextResponse } from 'next/server';
+
+import {
+  ChatMessage,
+  getEffectiveAIConfig,
+  streamOpenAIChat,
+  transformToSSE,
+} from '@/lib/ai';
+import { getAuthInfoFromCookie } from '@/lib/auth';
+
+export const runtime = 'edge';
+
+interface ChatRequest {
+  message: string;
+  context?: {
+    title?: string;
+    year?: string;
+    desc?: string;
+    source_name?: string;
+  };
+  history?: ChatMessage[];
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    // 1. 验证用户登录
+    const authInfo = getAuthInfoFromCookie(request);
+    if (!authInfo) {
+      return NextResponse.json({ error: '请先登录' }, { status: 401 });
+    }
+
+    // 2. 获取 AI 配置
+    const aiConfig = await getEffectiveAIConfig();
+    if (!aiConfig) {
+      return NextResponse.json(
+        { error: 'AI功能未启用，请在管理后台或环境变量中配置' },
+        { status: 400 }
+      );
+    }
+
+    // 3. 解析请求
+    const body = (await request.json()) as ChatRequest;
+    const { message, context, history = [] } = body;
+
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json(
+        { error: '消息内容不能为空' },
+        { status: 400 }
+      );
+    }
+
+    // 4. 构建系统提示词
+    let systemPrompt = aiConfig.SystemPrompt || '';
+    if (context?.title) {
+      systemPrompt += `\n当前用户正在观看《${context.title}》${
+        context.year ? `(${context.year})` : ''
+      }${context.source_name ? `，来源：${context.source_name}` : ''}。${
+        context.desc ? `剧情简介：${context.desc.slice(0, 500)}` : ''
+      }\n请结合该影视作品回答用户的问题，例如剧情解析、演员信息、推荐类似影片等。`;
+    }
+    systemPrompt +=
+      '\n你是一个专业的影视推荐与问答助手。回答要简洁、准确、有帮助。推荐影片时给出片名和简短理由。';
+
+    const messages: ChatMessage[] = [
+      { role: 'user', content: systemPrompt },
+      { role: 'assistant', content: '明白了，我会按照要求回答用户的问题。' },
+      ...history,
+      { role: 'user', content: message },
+    ];
+
+    // 5. 调用 AI API
+    const enableStreaming = aiConfig.EnableStreaming !== false;
+
+    try {
+      const result = await streamOpenAIChat(
+        messages,
+        {
+          apiKey: aiConfig.CustomApiKey,
+          baseURL: aiConfig.CustomBaseURL,
+          model: aiConfig.CustomModel,
+          temperature: aiConfig.Temperature ?? 0.7,
+          maxTokens: aiConfig.MaxTokens ?? 1000,
+        },
+        enableStreaming
+      );
+
+      if (enableStreaming) {
+        const sseStream = transformToSSE(result as ReadableStream);
+        return new NextResponse(sseStream, {
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+          },
+        });
+      }
+
+      const data = await (result as Response).json();
+      let content = data.choices?.[0]?.message?.content || '';
+      content = content.replace(/<think>[\s\S]*?<\/think>/g, '');
+      return NextResponse.json({ content });
+    } catch (err: any) {
+      return NextResponse.json(
+        {
+          error: 'AI 请求失败',
+          details: err?.message || String(err),
+        },
+        { status: 502 }
+      );
+    }
+  } catch (error) {
+    console.error('AI聊天API错误:', error);
+    return NextResponse.json(
+      { error: 'AI聊天请求失败' },
+      { status: 500 }
+    );
+  }
+}
