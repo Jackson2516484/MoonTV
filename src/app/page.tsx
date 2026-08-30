@@ -398,7 +398,7 @@ function HomeClient() {
       {/* AI问片入口（浮动按钮） */}
       <button
         onClick={() => setShowAIChat(true)}
-        className='fixed bottom-24 right-4 z-[4000] flex h-12 w-12 items-center justify-center rounded-full bg-purple-500 text-white shadow-lg hover:bg-purple-600 active:scale-95 transition-all md:hidden'
+        className='fixed bottom-24 right-4 z-[4000] flex h-12 w-12 items-center justify-center rounded-full bg-purple-500 text-white shadow-lg hover:bg-purple-600 active:scale-95 transition-all lg:hidden'
         title='AI问片'
       >
         <Bot className='h-6 w-6' />

@@ -166,7 +166,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
   return (
     <SidebarContext.Provider value={contextValue}>
       {/* 在移动端隐藏侧边栏 */}
-      <div className='hidden md:flex'>
+      <div className='hidden lg:flex'>
         <aside
           data-sidebar
           className={`fixed top-0 left-0 h-screen bg-white/40 backdrop-blur-xl transition-all duration-300 border-r border-gray-200/50 z-10 shadow-lg dark:bg-gray-900/70 dark:border-gray-700/50 ${

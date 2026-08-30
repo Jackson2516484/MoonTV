@@ -21,11 +21,11 @@ export default function PageLayout({
     <div className='flex min-h-screen bg-gray-50 dark:bg-black relative overflow-hidden'>
       <BackButtonHandler />
 
-      <Suspense fallback={<div className="hidden md:block w-64 bg-gray-50 dark:bg-black" />}>
+      <Suspense fallback={<div className="hidden lg:block w-64 bg-gray-50 dark:bg-black" />}>
         <Sidebar activePath={activePath} />
       </Suspense>
 
-      <div className='flex-1 flex flex-col min-w-0 mb-14 md:mb-0 relative'>
+      <div className='flex-1 flex flex-col min-w-0 mb-14 lg:mb-0 relative'>
         <MobileHeader />
 
         {/* 内容区域：Top Padding 增加适配新的 Header 高度 (4rem) */}
@@ -38,7 +38,7 @@ export default function PageLayout({
           {children}
         </main>
 
-        <Suspense fallback={<div className="md:hidden h-14 bg-white dark:bg-gray-900" />}>
+        <Suspense fallback={<div className="lg:hidden h-14 bg-white dark:bg-gray-900" />}>
           <MobileBottomNav activePath={activePath} />
         </Suspense>
       </div>

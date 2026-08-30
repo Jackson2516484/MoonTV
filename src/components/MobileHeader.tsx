@@ -15,7 +15,7 @@ const MobileHeader = () => {
   return (
     <header 
       // 增加 z-index 到极高值，确保横屏时不被覆盖
-      className='md:hidden fixed top-0 left-0 right-0 z-[9000] bg-white/95 backdrop-blur-xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/95 dark:border-gray-700/50 transition-all duration-300'
+      className='lg:hidden fixed top-0 left-0 right-0 z-[9000] bg-white/95 backdrop-blur-xl border-b border-gray-200/50 shadow-sm dark:bg-gray-900/95 dark:border-gray-700/50 transition-all duration-300'
       style={{
         paddingTop: 'env(safe-area-inset-top)',
         // 增加高度：原 3.5rem (56px) -> 4rem (64px)，相当于增加了约 8mm (实际上是 8px，视觉上更宽)
