@@ -2,15 +2,28 @@
 
 'use client';
 
-import { Download, Loader2, Plus, Radio, Trash2, Upload, X } from 'lucide-react';
+import {
+  Download,
+  Loader2,
+  Plus,
+  Radio,
+  Settings2,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
 import CastModal from '@/components/CastModal';
-import { toAbsoluteUrl } from '@/lib/dlna';
+import {
+  getLivePlaybackProxyUrl,
+  getLiveRelayBase,
+  setLiveRelayBase,
+  toAbsoluteUrl,
+} from '@/lib/dlna';
 import { downloadLiveDirect, recordVideoElement } from '@/lib/download';
 import {
-  getLivePlaybackUrl,
   isM3u8Url,
   isUdpStreamUrl,
   LiveChannel,
@@ -124,6 +137,8 @@ function LivePageClient() {
   const [playTip, setPlayTip] = useState<string | null>(null);
   const [castOpen, setCastOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [showRelayForm, setShowRelayForm] = useState(false);
+  const [relayBase, setRelayBase] = useState('');
 
   const allSources = [...configSources, ...customSources];
 
@@ -151,6 +166,7 @@ function LivePageClient() {
         Mpegts = mod.default || mod;
       });
       setCustomSources(loadCustomSources());
+      setRelayBase(getLiveRelayBase());
     }
 
     const fetchSources = async () => {
@@ -474,7 +490,7 @@ function LivePageClient() {
         }
 
         Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2];
-        const targetUrl = getLivePlaybackUrl(channel.url, currentSource?.ua);
+        const targetUrl = getLivePlaybackProxyUrl(channel.url, currentSource?.ua);
         artPlayerRef.current = new Artplayer({
           container: artRef.current,
           url: targetUrl,
@@ -537,7 +553,7 @@ function LivePageClient() {
   const playChannelInPlayer = (channel: LiveChannel) => {
     const player = artPlayerRef.current;
     if (!player) return;
-    const targetUrl = getLivePlaybackUrl(channel.url, currentSource?.ua);
+    const targetUrl = getLivePlaybackProxyUrl(channel.url, currentSource?.ua);
     const video = player.video as HTMLVideoElement;
 
     // 先清理上一个直链流播放器（mpegts）
@@ -595,7 +611,7 @@ function LivePageClient() {
     const preloaded = preloadRef.current;
     const player = artPlayerRef.current;
     if (!preloaded || !player) return false;
-    const targetUrl = getLivePlaybackUrl(channel.url, currentSource?.ua);
+    const targetUrl = getLivePlaybackProxyUrl(channel.url, currentSource?.ua);
     if (preloaded.url !== targetUrl) return false;
 
     try {
@@ -675,7 +691,7 @@ function LivePageClient() {
     if (!next || next.id === current.id) return;
     if (!isM3u8Url(next.url)) return;
 
-    const targetUrl = getLivePlaybackUrl(next.url, source.ua);
+    const targetUrl = getLivePlaybackProxyUrl(next.url, source.ua);
     const video = document.createElement('video');
     video.muted = true;
     video.preload = 'auto';
@@ -756,7 +772,7 @@ function LivePageClient() {
     const ch = currentChannel;
     if (!ch) return null;
     return {
-      url: toAbsoluteUrl(getLivePlaybackUrl(ch.url, currentSource?.ua)),
+      url: toAbsoluteUrl(getLivePlaybackProxyUrl(ch.url, currentSource?.ua)),
       title: ch.name,
     };
   };
@@ -786,10 +802,11 @@ function LivePageClient() {
         }
       } else {
         await downloadLiveDirect(
-          getLivePlaybackUrl(ch.url, currentSource?.ua),
+          getLivePlaybackProxyUrl(ch.url, currentSource?.ua),
           title,
           30,
           (left) => setPlayTip(`${t('downloadingLive')} ${left}s`),
+          ch.url,
         );
       }
       setPlayTip(t('liveSaved'));
@@ -799,6 +816,15 @@ function LivePageClient() {
       setDownloading(false);
       window.setTimeout(() => setPlayTip(null), 4000);
     }
+  };
+
+  // 保存直播中转服务地址
+  const handleSaveRelay = (base?: string) => {
+    const value = base !== undefined ? base : relayBase;
+    setLiveRelayBase(value);
+    setRelayBase(value);
+    setPlayTip(value.trim() ? t('relaySaved') : t('relayCleared'));
+    window.setTimeout(() => setPlayTip(null), 3000);
   };
 
   // 通过 URL 导入
@@ -904,14 +930,61 @@ function LivePageClient() {
             <Radio className='w-6 h-6 text-green-500' />
             {t('liveTitle')}
           </h1>
-          <button
-            onClick={() => setShowAddForm((v) => !v)}
-            className='flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700 transition-colors'
-          >
-            <Plus className='w-4 h-4' />
-            {t('importM3u')}
-          </button>
+          <div className='flex items-center gap-2'>
+            <button
+              onClick={() => setShowRelayForm((v) => !v)}
+              title={t('relay')}
+              className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${relayBase
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+            >
+              <Settings2 className='w-4 h-4' />
+              {relayBase ? t('relayOn') : t('relay')}
+            </button>
+            <button
+              onClick={() => setShowAddForm((v) => !v)}
+              className='flex items-center gap-1 rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700 transition-colors'
+            >
+              <Plus className='w-4 h-4' />
+              {t('importM3u')}
+            </button>
+          </div>
         </div>
+
+        {/* 直播中转设置 */}
+        {showRelayForm && (
+          <div className='rounded-xl bg-white dark:bg-gray-900 p-4 shadow ring-1 ring-gray-200/60 dark:ring-gray-800 space-y-2'>
+            <p className='text-sm font-medium text-gray-800 dark:text-gray-200'>
+              {t('relay')}
+            </p>
+            <p className='text-xs text-gray-500 dark:text-gray-400'>
+              {t('relayHint')}
+            </p>
+            <div className='flex flex-wrap gap-2'>
+              <input
+                type='text'
+                value={relayBase}
+                onChange={(e) => setRelayBase(e.target.value)}
+                placeholder='https://xxx.trycloudflare.com'
+                className='flex-1 min-w-[200px] rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-green-500 focus:outline-none'
+              />
+              <button
+                onClick={() => handleSaveRelay()}
+                className='rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700 transition-colors'
+              >
+                {t('confirm')}
+              </button>
+              {relayBase && (
+                <button
+                  onClick={() => handleSaveRelay('')}
+                  className='rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                >
+                  {t('relayClear')}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 导入表单 */}
         {showAddForm && (

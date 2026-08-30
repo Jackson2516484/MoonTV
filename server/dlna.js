@@ -369,6 +369,173 @@ function handleProxy(req, res, url) {
   });
 }
 
+
+// ============================================================
+// 直播中转：m3u8 播放列表重写 + 资源透传
+// 在 Cloudflare Pages（https）上无法直接播放国内 http 源时，
+// 可把本服务跑在电脑/局域网设备上，并通过 https 隧道（如
+// cloudflared）暴露，前端把“中转服务地址”填成该 https 地址。
+// ============================================================
+function getPlaylistBase(urlString) {
+  try {
+    const u = new URL(urlString);
+    const pathname = u.pathname;
+    const idx = pathname.lastIndexOf('/');
+    return u.origin + (idx >= 0 ? pathname.slice(0, idx + 1) : '/');
+  } catch (err) {
+    return urlString.endsWith('/') ? urlString : urlString + '/';
+  }
+}
+
+function resolveRelayUrl(baseUrl, relativePath) {
+  try {
+    if (/^https?:\/\//i.test(relativePath)) return relativePath;
+    if (relativePath.startsWith('//')) {
+      return new URL(baseUrl).protocol + relativePath;
+    }
+    return new URL(relativePath, baseUrl).href;
+  } catch (err) {
+    return relativePath;
+  }
+}
+
+function buildProxiedUrl(target, playlistBase, proxyPath, params) {
+  const absolute = resolveRelayUrl(playlistBase, target);
+  const search = new URLSearchParams({ url: absolute });
+  if (params.ua) search.set('ua', params.ua);
+  if (params.referer) search.set('referer', params.referer);
+  return proxyPath + '?' + search.toString();
+}
+
+function rewritePlaylist(text, playlistBase, proxyPath, params) {
+  const lines = text.split(/\r?\n/);
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      out.push(line);
+      continue;
+    }
+    if (trimmed.startsWith('#EXT-X-STREAM-INF:')) {
+      out.push(line);
+      const variant = lines[i + 1] ? lines[i + 1].trim() : '';
+      if (variant && !variant.startsWith('#')) {
+        out.push(buildProxiedUrl(variant, playlistBase, proxyPath, params));
+        i++;
+      }
+      continue;
+    }
+    if (
+      trimmed.startsWith('#EXT-X-KEY:') ||
+      trimmed.startsWith('#EXT-X-MAP:') ||
+      trimmed.startsWith('#EXT-X-MEDIA:')
+    ) {
+      out.push(
+        trimmed.replace(/URI="([^"]*)"/g, (m, uri) =>
+          'URI="' + buildProxiedUrl(uri, playlistBase, proxyPath, params) + '"'
+        ),
+      );
+      continue;
+    }
+    if (trimmed.startsWith('#')) {
+      out.push(line);
+      continue;
+    }
+    out.push(buildProxiedUrl(trimmed, playlistBase, proxyPath, params));
+  }
+  return out.join('\n');
+}
+
+function handleLiveProxy(req, res, url) {
+  const target = url.searchParams.get('url');
+  if (!target) return json(res, 400, { error: '缺少 url 参数' });
+  const ua = url.searchParams.get('ua') || DEFAULT_UA;
+  const referer = url.searchParams.get('referer') || '';
+  const headers = { 'User-Agent': ua, Accept: '*/*' };
+  let refererValue = referer;
+  try {
+    refererValue = referer || new URL(target).origin;
+  } catch (err) {
+    // 忽略
+  }
+  if (refererValue) headers.Referer = refererValue;
+  const range = req.headers.range;
+  if (range) headers.Range = range;
+
+  let lib;
+  try {
+    lib = new URL(target).protocol === 'https:' ? https : http;
+  } catch (err) {
+    return json(res, 400, { error: '地址无效' });
+  }
+
+  const upstream = lib.get(target, { headers }, (upRes) => {
+    const contentType = upRes.headers['content-type'] || '';
+    const isPlaylist =
+      /\.m3u8?($|\?)/i.test(target) ||
+      /mpegurl|apple|vnd\.apple|audio\/x-mpeg/i.test(contentType);
+    if (!isPlaylist || upRes.statusCode !== 200) {
+      res.writeHead(upRes.statusCode || 200, {
+        'Content-Type': contentType || 'application/octet-stream',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Range',
+        'Cache-Control': 'no-store',
+        'Transfer-Encoding': 'chunked',
+      });
+      upRes.pipe(res);
+      return;
+    }
+    let text = '';
+    upRes.setEncoding('utf8');
+    upRes.on('data', (chunk) => (text += chunk));
+    upRes.on('end', () => {
+      const playlistBase = getPlaylistBase(target);
+      const rewritten = rewritePlaylist(text, playlistBase, '/api/live/proxy', {
+        ua,
+        referer: refererValue,
+      });
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store',
+      });
+      res.end(rewritten);
+    });
+    upRes.on('error', () => {
+      try {
+        res.destroy();
+      } catch (err) {
+        // 忽略
+      }
+    });
+  });
+  upstream.on('error', (err) => {
+    try {
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+      }
+      res.end(JSON.stringify({ error: '中转拉流失败: ' + err.message }));
+    } catch (e) {
+      // 忽略
+    }
+  });
+  upstream.setTimeout(30000, () => {
+    try {
+      upstream.destroy(new Error('中转拉流超时'));
+    } catch (e) {
+      // 忽略
+    }
+  });
+  req.on('close', () => {
+    try {
+      upstream.destroy();
+    } catch (e) {
+      // 忽略
+    }
+  });
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', 'http://localhost');
 
@@ -388,6 +555,9 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && url.pathname === '/api/proxy') {
     return handleProxy(req, res, url);
+  }
+  if (req.method === 'GET' && url.pathname === '/api/live/proxy') {
+    return handleLiveProxy(req, res, url);
   }
   if (req.method === 'POST' && url.pathname === '/api/dlna/play') {
     return handlePlay(req, res);

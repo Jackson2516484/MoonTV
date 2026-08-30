@@ -11,8 +11,9 @@ export interface DlnaDevice {
 }
 
 const DLNA_BASE_KEY = 'moontv_dlna_base';
+const LIVE_RELAY_KEY = 'moontv_live_relay';
 
-// 获取投屏服务器地址（默认与本站点同主机，端口 7777）
+// 获取投屏服务器地址（默认与本站点同主机，端口 8899）
 export function getDlnaServerBase(): string {
   if (typeof window === 'undefined') return 'http://localhost:8899';
   try {
@@ -62,6 +63,38 @@ export async function castToDlnaDevice(
     const data = await res.json().catch(() => ({}));
     throw new Error((data && (data as any).error) || `投屏失败: HTTP ${res.status}`);
   }
+}
+
+// 直播中转服务地址（本地伴生服务，用于播放国内 http 源；Cloudflare 部署时可配合 https 隧道）
+export function getLiveRelayBase(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const saved = window.localStorage.getItem(LIVE_RELAY_KEY);
+    return saved ? saved.replace(/\/+$/, '') : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+export function setLiveRelayBase(base: string): void {
+  if (typeof window === 'undefined') return;
+  const cleaned = (base || '').trim().replace(/\/+$/, '');
+  if (cleaned) {
+    window.localStorage.setItem(LIVE_RELAY_KEY, cleaned);
+  } else {
+    window.localStorage.removeItem(LIVE_RELAY_KEY);
+  }
+}
+
+// 生成直播播放地址：设置了中转服务时走伴生服务（可访问国内 http 源），否则走本站边缘代理
+export function getLivePlaybackProxyUrl(url: string, ua?: string): string {
+  const params = new URLSearchParams({ url });
+  if (ua) params.set('ua', ua);
+  const relay = getLiveRelayBase();
+  if (relay) {
+    return `${relay}/api/live/proxy?${params.toString()}`;
+  }
+  return `/api/live/play/stream.m3u8?${params.toString()}`;
 }
 
 // 将相对地址（如 /api/live/play/...）转为电视可访问的绝对地址

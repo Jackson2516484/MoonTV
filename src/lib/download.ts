@@ -158,12 +158,38 @@ export async function downloadFileViaProxy(
 
 // 普通视频直接下载（浏览器导航下载，不受 CORS 限制）
 export async function downloadDirect(url: string, title: string): Promise<void> {
-  // App 内或混合内容（https 页面加载 http 资源）时走服务端代理
   const isMixed =
     typeof location !== 'undefined' &&
     location.protocol === 'https:' &&
     url.startsWith('http://');
-  if (isNativeApp() || isMixed) {
+
+  if (isNativeApp()) {
+    // App 内（已开启 cleartext）：优先 fetch 直连保存；CORS 受限时交给系统下载管理器（不依赖 CORS）
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const buffer = await response.arrayBuffer();
+        const contentType = response.headers.get('content-type') || '';
+        const blob = new Blob([buffer], { type: contentType || 'video/mp4' });
+        await saveBlobToDevice(blob, title);
+        return;
+      }
+    } catch (err) {
+      // 直连失败，继续回退
+    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = title;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return;
+  }
+
+  // 混合内容（https 页面加载 http 资源）时走服务端代理
+  if (isMixed) {
     await downloadFileViaProxy(url, title);
     return;
   }
@@ -246,13 +272,32 @@ export async function downloadLiveDirect(
   title: string,
   seconds = 30,
   onProgress?: (secondsLeft: number) => void,
+  directUrl?: string,
 ): Promise<void> {
   const referer = getReferer(url);
-  const response = await fetch(getDownloadProxyUrl(url, referer, 'raw'), {
-    cache: 'no-store',
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`获取直播流失败: HTTP ${response.status}`);
+  let response: Response | null = null;
+  try {
+    const res = await fetch(getDownloadProxyUrl(url, referer, 'raw'), {
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    response = res;
+  } catch (err) {
+    // 代理失败（如 Cloudflare 边缘无法访问国内源）时尝试直连原始地址
+    if (directUrl) {
+      const direct = await fetch(directUrl, { cache: 'no-store' });
+      if (direct.ok) {
+        response = direct;
+      }
+    }
+    if (!response) {
+      throw new Error(
+        err instanceof Error ? err.message : '获取直播流失败',
+      );
+    }
+  }
+  if (!response.body) {
+    throw new Error('获取直播流失败: 无响应内容');
   }
   const reader = response.body.getReader();
   const chunks: BlobPart[] = [];

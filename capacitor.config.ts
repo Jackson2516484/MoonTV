@@ -4,7 +4,10 @@ const config: CapacitorConfig = {
   appId: 'com.wangzhiwei05.moontv',
   appName: 'MoonTv',
   webDir: 'out',
-  // server 配置已移除，强制加载本地 Web 资源
+  server: {
+    // Android 允许 http 明文流量：直播/下载国内 http 源时可直接访问
+    cleartext: true,
+  },
   plugins: {
     StatusBar: {
       overlaysWebView: true,
