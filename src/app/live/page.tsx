@@ -2,14 +2,17 @@
 
 'use client';
 
-import { Loader2, Plus, Radio, Trash2, Upload, X } from 'lucide-react';
+import { Download, Loader2, Plus, Radio, Trash2, Upload, X } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
-import { castCurrentVideo } from '@/lib/cast';
+import CastModal from '@/components/CastModal';
+import { toAbsoluteUrl } from '@/lib/dlna';
+import { downloadLiveDirect, recordVideoElement } from '@/lib/download';
 import {
   getLivePlaybackUrl,
   isM3u8Url,
+  isUdpStreamUrl,
   LiveChannel,
   LiveSource,
   parseLiveContent,
@@ -21,6 +24,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 // 动态导入浏览器专用库
 let Artplayer: any = null;
 let Hls: any = null;
+let Mpegts: any = null;
 
 declare global {
   interface HTMLVideoElement {
@@ -70,6 +74,7 @@ function LivePageClient() {
 
   const artRef = useRef<HTMLDivElement | null>(null);
   const artPlayerRef = useRef<any>(null);
+  const mpegtsRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // 播放核心：单一 HLS 实例复用 + 预加载下一个频道
@@ -117,6 +122,8 @@ function LivePageClient() {
   const [isVideoLoading, setIsVideoLoading] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const [playTip, setPlayTip] = useState<string | null>(null);
+  const [castOpen, setCastOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const allSources = [...configSources, ...customSources];
 
@@ -140,6 +147,9 @@ function LivePageClient() {
       import('hls.js').then((mod) => {
         Hls = mod.default;
       });
+      import('mpegts.js').then((mod) => {
+        Mpegts = mod.default || mod;
+      });
       setCustomSources(loadCustomSources());
     }
 
@@ -161,6 +171,15 @@ function LivePageClient() {
 
     return () => {
       cancelPreload();
+      if (mpegtsRef.current) {
+        try {
+          mpegtsRef.current.unload?.();
+          mpegtsRef.current.destroy?.();
+        } catch (err) {
+          // 忽略
+        }
+        mpegtsRef.current = null;
+      }
       if (mainHlsRef.current) {
         try {
           mainHlsRef.current.destroy();
@@ -362,6 +381,88 @@ function LivePageClient() {
     });
   };
 
+  // 直链流（flv / ts / udp 组播桥接等非 m3u8 源）：优先用 mpegts.js，失败回退原生播放
+  const createDirectPlayback = (
+    video: HTMLVideoElement,
+    url: string,
+    channel: LiveChannel,
+  ) => {
+    // 清理旧的 HLS / 原生 src
+    if (video.hls) {
+      try {
+        video.hls.stopLoad();
+        video.hls.detachMedia();
+        video.hls.destroy();
+      } catch (err) {
+        // 忽略
+      }
+      video.hls = null;
+      mainHlsRef.current = null;
+    }
+    if (mpegtsRef.current) {
+      try {
+        mpegtsRef.current.unload?.();
+        mpegtsRef.current.destroy?.();
+      } catch (err) {
+        // 忽略
+      }
+      mpegtsRef.current = null;
+    }
+    video.removeAttribute('src');
+    try {
+      video.load();
+    } catch (err) {
+      // 忽略
+    }
+
+    const channelUrl = channel.url;
+    const needsMse =
+      isUdpStreamUrl(channelUrl) || /\.(flv|ts|m2ts|mpeg)(\?|$)/i.test(channelUrl);
+    if (needsMse && Mpegts && typeof Mpegts.isSupported === 'function' && Mpegts.isSupported()) {
+      try {
+        const player = Mpegts.createPlayer(
+          { type: 'mpegts', isLive: true, url, cors: true },
+          {
+            enableWorker: true,
+            enableStashBuffer: false,
+            isLive: true,
+            liveBufferLatencyChasing: true,
+          },
+        );
+        player.attachMediaElement(video);
+        mpegtsRef.current = player;
+        player.on(Mpegts.Events.ERROR, () => {
+          // mpegts 解析失败 → 回退原生播放
+          try {
+            player.unload?.();
+            player.destroy?.();
+          } catch (err) {
+            // 忽略
+          }
+          if (mpegtsRef.current === player) mpegtsRef.current = null;
+          video.src = url;
+          video.play().catch(() => {});
+        });
+        player.load();
+        player.play();
+        return;
+      } catch (err) {
+        console.error('创建 mpegts 播放器失败:', err);
+        if (mpegtsRef.current) {
+          try {
+            mpegtsRef.current.destroy?.();
+          } catch (err2) {
+            // 忽略
+          }
+          mpegtsRef.current = null;
+        }
+      }
+    }
+    // 其他直链（mp4 等）直接原生播放
+    video.src = url;
+    video.play();
+  };
+
   // 首次创建播放器
   const initPlayer = (channel: LiveChannel) => {
     setTimeout(() => {
@@ -403,7 +504,12 @@ function LivePageClient() {
           },
           customType: {
             m3u8: (video: HTMLVideoElement, url: string) => {
-              createHlsForVideo(video, url);
+              // 统一代理地址为 stream.m3u8，按频道真实地址分流：m3u8 走 HLS，直链流走 mpegts/原生
+              if (isM3u8Url(channel.url)) {
+                createHlsForVideo(video, url);
+              } else {
+                createDirectPlayback(video, url, channel);
+              }
             },
           },
         });
@@ -434,21 +540,20 @@ function LivePageClient() {
     const targetUrl = getLivePlaybackUrl(channel.url, currentSource?.ua);
     const video = player.video as HTMLVideoElement;
 
-    // 直链流：销毁 HLS，直接设置 src（经代理，规避混合内容/防盗链）
-    if (!isM3u8Url(channel.url)) {
-      if (video.hls) {
-        try {
-          video.hls.stopLoad();
-          video.hls.detachMedia();
-          video.hls.destroy();
-        } catch (err) {
-          // 忽略
-        }
-        video.hls = null;
-        mainHlsRef.current = null;
+    // 先清理上一个直链流播放器（mpegts）
+    if (mpegtsRef.current) {
+      try {
+        mpegtsRef.current.unload?.();
+        mpegtsRef.current.destroy?.();
+      } catch (err) {
+        // 忽略
       }
-      video.src = targetUrl;
-      player.play();
+      mpegtsRef.current = null;
+    }
+
+    // 直链流：使用 mpegts.js / 原生播放（经代理，规避混合内容/防盗链）
+    if (!isM3u8Url(channel.url)) {
+      createDirectPlayback(video, targetUrl, channel);
       setIsVideoLoading(false);
       return;
     }
@@ -495,6 +600,15 @@ function LivePageClient() {
 
     try {
       const video = player.video as HTMLVideoElement;
+      if (mpegtsRef.current) {
+        try {
+          mpegtsRef.current.unload?.();
+          mpegtsRef.current.destroy?.();
+        } catch (err) {
+          // 忽略
+        }
+        mpegtsRef.current = null;
+      }
       const oldHls = mainHlsRef.current;
       if (oldHls && oldHls !== preloaded.hls) {
         try {
@@ -634,10 +748,56 @@ function LivePageClient() {
   };
 
   const handleCast = () => {
-    const video = artPlayerRef.current?.video as HTMLVideoElement | undefined;
-    const result = castCurrentVideo(video);
-    if (!result.ok && result.message) {
-      setPlayError(result.message);
+    setCastOpen(true);
+  };
+
+  // 投屏目标地址（绝对地址，供电视/盒子拉流）
+  const buildCastTarget = () => {
+    const ch = currentChannel;
+    if (!ch) return null;
+    return {
+      url: toAbsoluteUrl(getLivePlaybackUrl(ch.url, currentSource?.ua)),
+      title: ch.name,
+    };
+  };
+
+  // 下载/录制当前直播（固定录制 30 秒保存到本地）
+  const handleLiveDownload = async () => {
+    const ch = currentChannel;
+    if (!ch || downloading) return;
+    setDownloading(true);
+    setPlayError(null);
+    setPlayTip(t('downloadingLive'));
+    try {
+      const title = ch.name.replace(/[\\/:*?"<>|]/g, '_').trim() || '直播';
+      if (isM3u8Url(ch.url)) {
+        const video = artPlayerRef.current?.video as HTMLVideoElement | undefined;
+        const canRecord =
+          video &&
+          typeof MediaRecorder !== 'undefined' &&
+          typeof (video as any).captureStream === 'function';
+        if (canRecord) {
+          await recordVideoElement(video as HTMLVideoElement, title, 30, (left) =>
+            setPlayTip(`${t('recordingLive')} ${left}s`),
+          );
+        } else {
+          setPlayTip(t('liveRecordUnsupported'));
+          return;
+        }
+      } else {
+        await downloadLiveDirect(
+          getLivePlaybackUrl(ch.url, currentSource?.ua),
+          title,
+          30,
+          (left) => setPlayTip(`${t('downloadingLive')} ${left}s`),
+        );
+      }
+      setPlayTip(t('liveSaved'));
+    } catch (err) {
+      setPlayError(err instanceof Error ? err.message : '下载失败');
+    } finally {
+      setDownloading(false);
+      window.setTimeout(() => setPlayTip(null), 4000);
     }
   };
 
@@ -937,6 +1097,19 @@ function LivePageClient() {
                 {t('copyUrl')}
               </button>
               <button
+                onClick={handleLiveDownload}
+                disabled={downloading}
+                title={t('download')}
+                className='flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50'
+              >
+                {downloading ? (
+                  <Loader2 className='w-4 h-4 animate-spin' />
+                ) : (
+                  <Download className='w-4 h-4' />
+                )}
+                {t('download')}
+              </button>
+              <button
                 onClick={handleCast}
                 className='flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors'
               >
@@ -1059,6 +1232,16 @@ function LivePageClient() {
           </div>
         </div>
       </div>
+
+      {/* 投屏弹窗 */}
+      <CastModal
+        open={castOpen}
+        onClose={() => setCastOpen(false)}
+        getVideo={() =>
+          artPlayerRef.current?.video as HTMLVideoElement | undefined
+        }
+        buildCastTarget={buildCastTarget}
+      />
 
       {/* 播放提示浮层（复制等） */}
       {playTip && (

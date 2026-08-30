@@ -3,3 +3,5 @@ allowBuilds:
   sharp: false
   unrs-resolver: true
   '@capacitor/cli': true
+  esbuild: false
+  workerd: false

@@ -139,7 +139,7 @@ async function proxyRaw(
   request: NextRequest,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  const timer = setTimeout(() => controller.abort(), 120000);
   try {
     const headers: Record<string, string> = {
       'User-Agent': DEFAULT_UA,

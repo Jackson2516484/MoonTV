@@ -52,6 +52,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # 从构建器中复制 start.js
 COPY --from=builder --chown=nextjs:nodejs /app/start.js ./start.js
+# 从构建器中复制 DLNA 投屏伴生服务
+COPY --from=builder --chown=nextjs:nodejs /app/server ./server
 # 从构建器中复制 public 和 .next/static 目录
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static

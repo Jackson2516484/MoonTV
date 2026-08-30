@@ -26,10 +26,27 @@ generateManifest();
 // 直接在当前进程中启动 standalone Server（`server.js`）
 require('./server.js');
 
+// 启动 DLNA 投屏伴生服务（独立进程，默认端口 8899，不阻塞主服务）
+const { spawn } = require('child_process');
+const dlnaServerPath = path.join(__dirname, 'server', 'dlna.js');
+try {
+  const dlna = spawn(process.execPath, [dlnaServerPath], { stdio: 'inherit' });
+  dlna.on('error', (err) => {
+    console.error('❌ DLNA 投屏服务启动失败:', err.message);
+  });
+  dlna.on('exit', (code) => {
+    if (code !== 0) {
+      console.error(`⚠️ DLNA 投屏服务已退出 (code=${code})`);
+    }
+  });
+} catch (err) {
+  console.error('❌ DLNA 投屏服务启动失败:', err.message);
+}
+
 // 每 1 秒轮询一次，直到请求成功
 const TARGET_URL = `http://${process.env.HOSTNAME || 'localhost'}:${
   process.env.PORT || 3000
-}/login`;
+}/api/server-config`;
 
 const intervalId = setInterval(() => {
   console.log(`Fetching ${TARGET_URL} ...`);

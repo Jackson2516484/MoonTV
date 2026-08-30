@@ -29,7 +29,8 @@ import AIChatPanel from '@/components/AIChatPanel';
 import AIComments from '@/components/AIComments';
 import PageLayout from '@/components/PageLayout';
 
-import { castCurrentVideo } from '@/lib/cast';
+import CastModal from '@/components/CastModal';
+import { toAbsoluteUrl } from '@/lib/dlna';
 import { downloadDirect, downloadM3u8, isM3u8Url } from '@/lib/download';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -62,6 +63,7 @@ function PlayPageClient() {
   // 下载状态
   const [downloading, setDownloading] = useState(false);
   const [downloadTip, setDownloadTip] = useState<string | null>(null);
+  const [castOpen, setCastOpen] = useState(false);
 
   // 跳过片头片尾配置
   const [skipConfig, setSkipConfig] = useState({
@@ -1766,13 +1768,21 @@ function PlayPageClient() {
     );
   }
 
-  // 投屏（AirPlay / Chromecast）
+  // 投屏（DLNA 扫描 / AirPlay / Chromecast）
   const handleCast = () => {
-    const video = artPlayerRef.current?.video as HTMLVideoElement | undefined;
-    const result = castCurrentVideo(video);
-    if (!result.ok && result.message) {
-      setError(result.message);
-    }
+    setCastOpen(true);
+  };
+
+  // 投屏目标地址（绝对地址，供电视/盒子拉流）
+  const buildCastTarget = () => {
+    const currentUrl =
+      (artPlayerRef.current?.video?.currentSrc as string | undefined) ||
+      videoUrl;
+    if (!currentUrl) return null;
+    return {
+      url: toAbsoluteUrl(currentUrl),
+      title: `${videoTitle || '视频'}_第${currentEpisodeIndex + 1}集`,
+    };
   };
 
   // 下载当前视频
@@ -2059,6 +2069,16 @@ function PlayPageClient() {
           </div>
         )}
       </div>
+
+      {/* 投屏弹窗 */}
+      <CastModal
+        open={castOpen}
+        onClose={() => setCastOpen(false)}
+        getVideo={() =>
+          artPlayerRef.current?.video as HTMLVideoElement | undefined
+        }
+        buildCastTarget={buildCastTarget}
+      />
     </PageLayout>
   );
 }

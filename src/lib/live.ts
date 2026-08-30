@@ -222,15 +222,21 @@ export function isM3u8Url(url: string): boolean {
   return /\.m3u8?($|\?)/i.test(url);
 }
 
+// 判断是否为 UDP 组播地址（udpxy 桥接或 udp:// 协议，浏览器无法直接播放）
+export function isUdpStreamUrl(url: string): boolean {
+  const u = (url || '').trim().toLowerCase();
+  return u.startsWith('udp://') || u.includes('/udp/');
+}
+
 // 将频道地址转为可播放的同源代理地址（规避 CORS / 混合内容 / 防盗链）
+// 统一走 stream.m3u8 路径：播放列表会被重写为同源分片；直链流（flv/ts/udp）由 mpegts.js 或原生播放器处理
 export function getLivePlaybackUrl(
   url: string,
   ua?: string,
   referer?: string,
 ): string {
-  const isM3u8 = isM3u8Url(url);
   const params = new URLSearchParams({ url });
   if (ua) params.set('ua', ua);
   if (referer) params.set('referer', referer);
-  return `/api/live/play/${isM3u8 ? 'stream.m3u8' : 'stream.ts'}?${params.toString()}`;
+  return `/api/live/play/stream.m3u8?${params.toString()}`;
 }
