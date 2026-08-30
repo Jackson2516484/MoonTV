@@ -337,9 +337,9 @@ function LivePageClient() {
     const hls = new Hls({
       debug: false,
       enableWorker: true,
-      lowLatencyMode: true,
-      liveSyncDurationCount: 3,
-      liveMaxLatencyDurationCount: 8,
+      lowLatencyMode: false, // 慢速中转下关闭 LL-HLS 追边，避免反复卡顿
+      liveSyncDurationCount: 6, // 起播前多缓冲 6 个分片，抗网络抖动
+      liveMaxLatencyDurationCount: 12,
       maxBufferLength: 60,
       backBufferLength: 30,
       maxBufferSize: 120 * 1000 * 1000,
@@ -449,11 +449,9 @@ function LivePageClient() {
           {
             enableWorker: true,
             enableStashBuffer: true,
-            stashInitialSize: 4 * 1024 * 1024,
+            stashInitialSize: 8 * 1024 * 1024,
             isLive: true,
-            liveBufferLatencyChasing: true,
-            liveBufferLatencyMaxLatency: 8,
-            liveBufferLatencyMinLatency: 1,
+            liveBufferLatencyChasing: false, // 慢速中转下关闭追边，以流畅优先
           },
         );
         player.attachMediaElement(video);
@@ -712,7 +710,9 @@ function LivePageClient() {
     const hls = new Hls({
       debug: false,
       enableWorker: true,
-      lowLatencyMode: true,
+      lowLatencyMode: false,
+      liveSyncDurationCount: 6,
+      liveMaxLatencyDurationCount: 12,
       maxBufferLength: 30,
       backBufferLength: 0,
       startFragPrefetch: true,

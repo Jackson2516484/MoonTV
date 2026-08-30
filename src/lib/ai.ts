@@ -160,6 +160,21 @@ async function requestGeminiChat(
       continue;
     }
     if (result.ok) {
+      // 部分反代/网关会以 200 返回 {"error":{...}}，视为失败并继续尝试下一候选
+      if (result.text) {
+        try {
+          const parsedBody = JSON.parse(result.text);
+          if (parsedBody && parsedBody.error) {
+            lastStatus = parsedBody.error.code || 400;
+            lastError = new Error(
+              `AI API error: ${parsedBody.error.code || 400} ${parsedBody.error.message || 'unknown error'}`,
+            );
+            continue;
+          }
+        } catch (err) {
+          // 非 JSON 错误体，正常处理
+        }
+      }
       if (candidate.streaming) {
         if (enableStreaming) {
           return new Response(result.text, {
@@ -249,9 +264,9 @@ export async function streamOpenAIChat(
   return enableStreaming ? response.body! : response;
 }
 
-// 从响应 JSON 中提取文本内容（兼容 OpenAI 与 Gemini 格式）
+// 从响应 JSON 中提取文本内容（兼容 OpenAI 与 Gemini 格式，并互相回退）
 export function extractAIContent(data: any, format: AIFormat): string {
-  if (format === 'gemini') {
+  const fromGemini = (): string => {
     const parts = data?.candidates?.[0]?.content?.parts;
     if (Array.isArray(parts)) {
       return parts
@@ -260,8 +275,13 @@ export function extractAIContent(data: any, format: AIFormat): string {
     }
     if (typeof data?.text === 'string') return data.text;
     return '';
+  };
+  const fromOpenAI = (): string =>
+    data?.choices?.[0]?.message?.content || '';
+  if (format === 'gemini') {
+    return fromGemini() || fromOpenAI();
   }
-  return data?.choices?.[0]?.message?.content || '';
+  return fromOpenAI() || fromGemini();
 }
 
 // 转换为 SSE 格式（兼容 OpenAI SSE 与 Gemini SSE/NDJSON）
@@ -407,15 +427,52 @@ export async function generateAIComments({
   const format = detectAIFormat(aiConfig.CustomBaseURL);
   let content = extractAIContent(data, format);
 
-  // 提取 JSON 数组
-  const jsonMatch = content.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    throw new Error('AI 返回格式无法解析');
+  // 兼容各种返回形态：整个响应是数组 / 包在 comments/content/output/text 字段里
+  if (!content && data && typeof data === 'object') {
+    if (Array.isArray(data)) content = JSON.stringify(data);
+    else if (Array.isArray((data as any).comments))
+      content = JSON.stringify((data as any).comments);
+    else if (typeof (data as any).content === 'string')
+      content = (data as any).content;
+    else if (typeof (data as any).output === 'string')
+      content = (data as any).output;
+    else if (typeof (data as any).response === 'string')
+      content = (data as any).response;
+    else if (typeof (data as any).text === 'string') content = (data as any).text;
+  } else if (!content && typeof data === 'string') {
+    content = data;
   }
+  // 去掉 Markdown 代码块标记
+  content = (content || '').replace(/```(?:json)?/gi, '').trim();
+
+  // 提取 JSON 数组
+  let jsonMatch = content.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    // 整个内容本身就是一个 JSON 数组字符串
+    try {
+      const parsedOnce = JSON.parse(content);
+      if (Array.isArray(parsedOnce)) jsonMatch = [content];
+      else if (parsedOnce && Array.isArray(parsedOnce.comments))
+        jsonMatch = [JSON.stringify(parsedOnce.comments)];
+    } catch (err) {
+      // 忽略
+    }
+  }
+  if (!jsonMatch) {
+    const snippet = (content || JSON.stringify(data) || '')
+      .replace(/\s+/g, ' ')
+      .slice(0, 200);
+    throw new Error(
+      `AI 返回格式无法解析${snippet ? `（返回内容开头: ${snippet}）` : ''}`,
+    );
+  }
+
+  // 容错：模型偶尔输出多余尾逗号
+  const jsonText = jsonMatch[0].replace(/,\s*([\]}])/g, '$1');
 
   let parsed: any[];
   try {
-    parsed = JSON.parse(jsonMatch[0]);
+    parsed = JSON.parse(jsonText);
   } catch (err) {
     throw new Error('AI 返回 JSON 解析失败');
   }
