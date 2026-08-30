@@ -86,6 +86,20 @@ export function setLiveRelayBase(base: string): void {
   }
 }
 
+// 生成直播播放地址候选列表：优先本站边缘代理（Cloudflare 网络，速度快），
+// 配置了中转服务时把中转地址作为兜底（可访问国内 http 源）
+export function getLivePlaybackCandidates(
+  url: string,
+  ua?: string,
+): string[] {
+  const params = new URLSearchParams({ url });
+  if (ua) params.set('ua', ua);
+  const edge = `/api/live/play/stream.m3u8?${params.toString()}`;
+  const relay = getLiveRelayBase();
+  if (!relay) return [edge];
+  return [edge, `${relay}/api/live/proxy?${params.toString()}`];
+}
+
 // 生成直播播放地址：设置了中转服务时走伴生服务（可访问国内 http 源），否则走本站边缘代理
 export function getLivePlaybackProxyUrl(url: string, ua?: string): string {
   const params = new URLSearchParams({ url });

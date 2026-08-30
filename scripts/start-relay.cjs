@@ -100,26 +100,51 @@ async function main() {
   }
 
   console.log('[relay] 启动 cloudflared 隧道 ...');
-  try {
-    fs.writeFileSync(CF_LOG, '');
-  } catch (err) {
-    // 忽略
-  }
-  const out = fs.openSync(CF_LOG, 'a');
-  const cf = spawn(CF, ['tunnel', '--url', 'http://localhost:' + RELAY_PORT], {
-    cwd: ROOT,
-    stdio: ['ignore', out, out],
-  });
-  cf.on('exit', (code) => {
-    console.log('[relay] cloudflared 已退出 (code=' + code + ')');
-    process.exit(code || 0);
-  });
 
-  let tunnelUrl = null;
-  for (let i = 0; i < 90; i++) {
-    await sleep(2000);
-    tunnelUrl = await readTunnelUrl();
-    if (tunnelUrl) break;
+  // 启动隧道并等待地址（最多约 60 秒），失败返回 null
+  const startTunnel = (protocol) =>
+    new Promise((resolve) => {
+      try {
+        fs.writeFileSync(CF_LOG, '');
+      } catch (err) {
+        // 忽略
+      }
+      const out = fs.openSync(CF_LOG, 'a');
+      const args = ['tunnel', '--url', 'http://localhost:' + RELAY_PORT];
+      if (protocol) args.push('--protocol', protocol);
+      const cf = spawn(CF, args, { cwd: ROOT, stdio: ['ignore', out, out] });
+      cf.on('exit', (code) => {
+        // cloudflared 退出后由下面的轮询超时兜底，不在此处退出进程
+      });
+      const start = Date.now();
+      const poll = setInterval(() => {
+        const url = readTunnelUrl();
+        if (url) {
+          clearInterval(poll);
+          resolve(url);
+          return;
+        }
+        if (Date.now() - start > 60000) {
+          clearInterval(poll);
+          try {
+            cf.kill();
+          } catch (err) {
+            // 忽略
+          }
+          resolve(null);
+        }
+      }, 2000);
+    });
+
+  // QUIC 延迟更低，优先尝试；不可用时回退 HTTP/2
+  let tunnelUrl = await startTunnel('quic');
+  if (!tunnelUrl) {
+    console.log('[relay] QUIC 隧道不可用，回退 HTTP/2 ...');
+    tunnelUrl = await startTunnel('http2');
+  }
+  if (!tunnelUrl) {
+    console.log('[relay] HTTP/2 隧道不可用，使用默认协议重试 ...');
+    tunnelUrl = await startTunnel(null);
   }
   if (!tunnelUrl) {
     console.error('[relay] 未能获取隧道地址，请检查 cloudflared 是否安装/网络是否可用');

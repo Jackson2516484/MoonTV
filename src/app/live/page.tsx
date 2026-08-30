@@ -17,6 +17,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 
 import CastModal from '@/components/CastModal';
 import {
+  getLivePlaybackCandidates,
   getLivePlaybackProxyUrl,
   getLiveRelayBase,
   setLiveRelayBase,
@@ -104,6 +105,12 @@ function LivePageClient() {
     currentSource: null as LiveSource | null,
     keyword: '',
     selectedGroup: '全部',
+  });
+
+  // 当前频道播放尝试记录（用于边缘代理→中转自动切换）
+  const playAttemptRef = useRef<{ channelId: string; index: number }>({
+    channelId: '',
+    index: 0,
   });
 
   // 直播源
@@ -328,8 +335,62 @@ function LivePageClient() {
     }
   };
 
+  // 播放地址候选：优先本站边缘代理（Cloudflare 网络，速度快），中转兜底
+  const getPlaybackCandidates = (channel: LiveChannel): string[] => {
+    return getLivePlaybackCandidates(channel.url, currentSource?.ua);
+  };
+
+  // 尝试切换下一个播放通道（边缘→中转）；返回是否已切换
+  const tryNextPlaybackCandidate = (
+    video: HTMLVideoElement,
+    channel: LiveChannel,
+    fromIndex: number,
+  ): boolean => {
+    // 防止切换频道后旧回调继续操作
+    if (playAttemptRef.current.channelId !== channel.id) return false;
+    const candidates = getPlaybackCandidates(channel);
+    const next = fromIndex + 1;
+    if (next >= candidates.length) return false;
+    playAttemptRef.current.index = next;
+    const nextUrl = candidates[next];
+    // 清理旧播放器实例
+    if (video.hls) {
+      try {
+        video.hls.stopLoad?.();
+        video.hls.detachMedia?.();
+        video.hls.destroy?.();
+      } catch (err) {
+        // 忽略
+      }
+      video.hls = null;
+      mainHlsRef.current = null;
+    }
+    if (mpegtsRef.current) {
+      try {
+        mpegtsRef.current.unload?.();
+        mpegtsRef.current.destroy?.();
+      } catch (err) {
+        // 忽略
+      }
+      mpegtsRef.current = null;
+    }
+    setPlayError(null);
+    setIsVideoLoading(true);
+    if (isM3u8Url(channel.url)) {
+      createHlsForVideo(video, nextUrl, channel, next);
+    } else {
+      createDirectPlayback(video, nextUrl, channel, next);
+    }
+    return true;
+  };
+
   // 为指定 video 创建 HLS 实例（带自动恢复）
-  const createHlsForVideo = (video: HTMLVideoElement, url: string) => {
+  const createHlsForVideo = (
+    video: HTMLVideoElement,
+    url: string,
+    channel: LiveChannel,
+    attemptIndex = 0,
+  ) => {
     if (!Hls) {
       console.error('HLS.js 未加载');
       return;
@@ -376,6 +437,13 @@ function LivePageClient() {
               },
               800 * (retries + 1),
             );
+          } else if (tryNextPlaybackCandidate(video, channel, attemptIndex)) {
+            try {
+              hls.destroy();
+            } catch (err) {
+              // 忽略
+            }
+            if (mainHlsRef.current === hls) mainHlsRef.current = null;
           } else {
             setIsVideoLoading(false);
             setPlayError(t('livePlayFailed'));
@@ -392,14 +460,23 @@ function LivePageClient() {
           hls.recoverMediaError();
           break;
         default:
-          setIsVideoLoading(false);
-          setPlayError(t('livePlayFailed'));
-          try {
-            hls.destroy();
-          } catch (err) {
-            // 忽略
+          if (tryNextPlaybackCandidate(video, channel, attemptIndex)) {
+            try {
+              hls.destroy();
+            } catch (err) {
+              // 忽略
+            }
+            if (mainHlsRef.current === hls) mainHlsRef.current = null;
+          } else {
+            setIsVideoLoading(false);
+            setPlayError(t('livePlayFailed'));
+            try {
+              hls.destroy();
+            } catch (err) {
+              // 忽略
+            }
+            if (mainHlsRef.current === hls) mainHlsRef.current = null;
           }
-          if (mainHlsRef.current === hls) mainHlsRef.current = null;
           break;
       }
     });
@@ -410,6 +487,7 @@ function LivePageClient() {
     video: HTMLVideoElement,
     url: string,
     channel: LiveChannel,
+    attemptIndex = 0,
   ) => {
     // 清理旧的 HLS / 原生 src
     if (video.hls) {
@@ -457,7 +535,7 @@ function LivePageClient() {
         player.attachMediaElement(video);
         mpegtsRef.current = player;
         player.on(Mpegts.Events.ERROR, () => {
-          // mpegts 解析失败 → 回退原生播放
+          // mpegts 解析失败 → 先尝试下一个代理通道，最后回退原生播放
           try {
             player.unload?.();
             player.destroy?.();
@@ -465,8 +543,11 @@ function LivePageClient() {
             // 忽略
           }
           if (mpegtsRef.current === player) mpegtsRef.current = null;
-          video.src = url;
-          video.play().catch(() => {});
+          if (!tryNextPlaybackCandidate(video, channel, attemptIndex)) {
+            video.onerror = null;
+            video.src = url;
+            video.play().catch(() => {});
+          }
         });
         player.load();
         player.play();
@@ -484,6 +565,12 @@ function LivePageClient() {
       }
     }
     // 其他直链（mp4 等）直接原生播放
+    video.onerror = () => {
+      if (!tryNextPlaybackCandidate(video, channel, attemptIndex)) {
+        setIsVideoLoading(false);
+        setPlayError(t('livePlayFailed'));
+      }
+    };
     video.src = url;
     video.play();
   };
@@ -499,7 +586,7 @@ function LivePageClient() {
         }
 
         Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2];
-        const targetUrl = getLivePlaybackProxyUrl(channel.url, currentSource?.ua);
+        const targetUrl = getPlaybackCandidates(channel)[0];
         artPlayerRef.current = new Artplayer({
           container: artRef.current,
           url: targetUrl,
@@ -529,11 +616,11 @@ function LivePageClient() {
           },
           customType: {
             m3u8: (video: HTMLVideoElement, url: string) => {
-              // 统一代理地址为 stream.m3u8，按频道真实地址分流：m3u8 走 HLS，直链流走 mpegts/原生
+              // 按频道真实地址分流：m3u8 走 HLS，直链流走 mpegts/原生
               if (isM3u8Url(channel.url)) {
-                createHlsForVideo(video, url);
+                createHlsForVideo(video, url, channel, 0);
               } else {
-                createDirectPlayback(video, url, channel);
+                createDirectPlayback(video, url, channel, 0);
               }
             },
           },
@@ -562,7 +649,9 @@ function LivePageClient() {
   const playChannelInPlayer = (channel: LiveChannel) => {
     const player = artPlayerRef.current;
     if (!player) return;
-    const targetUrl = getLivePlaybackProxyUrl(channel.url, currentSource?.ua);
+    const candidates = getPlaybackCandidates(channel);
+    const attemptIdx = Math.min(playAttemptRef.current.index, candidates.length - 1);
+    const targetUrl = candidates[attemptIdx] || candidates[0];
     const video = player.video as HTMLVideoElement;
 
     // 先清理上一个直链流播放器（mpegts）
@@ -578,7 +667,7 @@ function LivePageClient() {
 
     // 直链流：使用 mpegts.js / 原生播放（经代理，规避混合内容/防盗链）
     if (!isM3u8Url(channel.url)) {
-      createDirectPlayback(video, targetUrl, channel);
+      createDirectPlayback(video, targetUrl, channel, attemptIdx);
       setIsVideoLoading(false);
       return;
     }
@@ -605,13 +694,13 @@ function LivePageClient() {
         }
         video.hls = null;
         mainHlsRef.current = null;
-        createHlsForVideo(video, targetUrl);
+        createHlsForVideo(video, targetUrl, channel, attemptIdx);
         player.play();
       }
       return;
     }
 
-    createHlsForVideo(video, targetUrl);
+    createHlsForVideo(video, targetUrl, channel, attemptIdx);
     player.play();
   };
 
@@ -620,7 +709,7 @@ function LivePageClient() {
     const preloaded = preloadRef.current;
     const player = artPlayerRef.current;
     if (!preloaded || !player) return false;
-    const targetUrl = getLivePlaybackProxyUrl(channel.url, currentSource?.ua);
+    const targetUrl = getPlaybackCandidates(channel)[0];
     if (preloaded.url !== targetUrl) return false;
 
     try {
@@ -700,7 +789,7 @@ function LivePageClient() {
     if (!next || next.id === current.id) return;
     if (!isM3u8Url(next.url)) return;
 
-    const targetUrl = getLivePlaybackProxyUrl(next.url, source.ua);
+    const targetUrl = getPlaybackCandidates(next)[0];
     const video = document.createElement('video');
     video.muted = true;
     video.preload = 'auto';
@@ -733,6 +822,7 @@ function LivePageClient() {
     setCurrentChannel(channel);
     setPlayError(null);
     setIsVideoLoading(true);
+    playAttemptRef.current = { channelId: channel.id, index: 0 };
 
     if (!artPlayerRef.current) {
       // 首次选择：创建播放器
