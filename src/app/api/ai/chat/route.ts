@@ -98,7 +98,11 @@ export async function POST(request: NextRequest) {
       );
 
       if (enableStreaming) {
-        const sseStream = transformToSSE(result as ReadableStream, aiFormat);
+        const rawStream =
+          result instanceof Response
+            ? result.body
+            : (result as ReadableStream);
+        const sseStream = transformToSSE(rawStream as ReadableStream, aiFormat);
         return new NextResponse(sseStream, {
           headers: {
             'Content-Type': 'text/event-stream',

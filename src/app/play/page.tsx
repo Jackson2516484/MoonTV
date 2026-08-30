@@ -1283,12 +1283,22 @@ function PlayPageClient() {
             const hls = new Hls({
               debug: false, // 关闭日志
               enableWorker: true, // WebWorker 解码，降低主线程压力
-              lowLatencyMode: true, // 开启低延迟 LL-HLS
+              lowLatencyMode: false, // 点播不使用 LL-HLS，保证缓冲充足
 
               /* 缓冲/内存相关 */
-              maxBufferLength: 30, // 前向缓冲最大 30s，过大容易导致高延迟
-              backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
-              maxBufferSize: 60 * 1000 * 1000, // 约 60MB，超出后触发清理
+              maxBufferLength: 60, // 前向缓冲最大 60s，播放更稳
+              backBufferLength: 60, // 保留 60s 已播放内容，便于回退
+              maxBufferSize: 200 * 1000 * 1000, // 约 200MB，超出后触发清理
+              startFragPrefetch: true, // 预取分片，减少切换卡顿
+              capLevelToPlayerSize: true, // 按播放器尺寸限制码率，降低解码压力
+
+              /* 重试/超时：网络抖动时自动重试，避免频繁转圈 */
+              fragLoadingMaxRetry: 8,
+              fragLoadingRetryDelay: 500,
+              fragLoadingMaxRetryTimeout: 30000,
+              manifestLoadingMaxRetry: 6,
+              manifestLoadingRetryDelay: 500,
+              levelLoadingMaxRetry: 6,
 
               /* 自定义loader */
               loader: blockAdEnabledRef.current
@@ -1306,10 +1316,18 @@ function PlayPageClient() {
               console.error('HLS Error:', event, data);
               if (data.fatal) {
                 switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.log('网络错误，尝试恢复...');
-                    hls.startLoad();
+                  case Hls.ErrorTypes.NETWORK_ERROR: {
+                    const retries = (hls as any).moontvRetries || 0;
+                    if (retries < 4) {
+                      (hls as any).moontvRetries = retries + 1;
+                      console.log('网络错误，尝试恢复...');
+                      hls.startLoad();
+                    } else {
+                      console.log('网络错误，重试次数过多，停止恢复');
+                      hls.destroy();
+                    }
                     break;
+                  }
                   case Hls.ErrorTypes.MEDIA_ERROR:
                     console.log('媒体错误，尝试恢复...');
                     hls.recoverMediaError();

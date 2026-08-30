@@ -338,12 +338,20 @@ function LivePageClient() {
       debug: false,
       enableWorker: true,
       lowLatencyMode: true,
-      liveSyncDurationCount: 2,
-      liveMaxLatencyDurationCount: 6,
-      maxBufferLength: 20,
+      liveSyncDurationCount: 3,
+      liveMaxLatencyDurationCount: 8,
+      maxBufferLength: 60,
       backBufferLength: 30,
-      maxBufferSize: 60 * 1000 * 1000,
+      maxBufferSize: 120 * 1000 * 1000,
       startPosition: -1,
+      startFragPrefetch: true,
+      capLevelToPlayerSize: true,
+      fragLoadingMaxRetry: 6,
+      fragLoadingRetryDelay: 500,
+      fragLoadingMaxRetryTimeout: 30000,
+      manifestLoadingMaxRetry: 5,
+      manifestLoadingRetryDelay: 500,
+      levelLoadingMaxRetry: 5,
     });
     (hls as any).moontvRetries = 0;
     hls.loadSource(url);
@@ -440,9 +448,12 @@ function LivePageClient() {
           { type: 'mpegts', isLive: true, url, cors: true },
           {
             enableWorker: true,
-            enableStashBuffer: false,
+            enableStashBuffer: true,
+            stashInitialSize: 4 * 1024 * 1024,
             isLive: true,
             liveBufferLatencyChasing: true,
+            liveBufferLatencyMaxLatency: 8,
+            liveBufferLatencyMinLatency: 1,
           },
         );
         player.attachMediaElement(video);
@@ -702,8 +713,12 @@ function LivePageClient() {
       debug: false,
       enableWorker: true,
       lowLatencyMode: true,
-      maxBufferLength: 10,
+      maxBufferLength: 30,
       backBufferLength: 0,
+      startFragPrefetch: true,
+      capLevelToPlayerSize: true,
+      fragLoadingMaxRetry: 4,
+      manifestLoadingMaxRetry: 3,
     });
     hls.loadSource(targetUrl);
     hls.attachMedia(video);

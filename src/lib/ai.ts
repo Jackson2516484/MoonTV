@@ -44,15 +44,6 @@ export async function getEffectiveAIConfig(): Promise<AIConfig | null> {
   }
 }
 
-// Gemini 反代地址兼容：用户只填域名根（如 https://gemini.example.com）时自动补全 /v1beta
-function normalizeGeminiBaseURL(baseURL: string): string {
-  let base = baseURL.replace(/\/+$/, '');
-  if (!/\/v1beta$/.test(base)) {
-    base = `${base}/v1beta`;
-  }
-  return base;
-}
-
 function toGeminiContents(messages: ChatMessage[]) {
   return messages
     .filter((m) => m.role !== 'system')
@@ -62,7 +53,48 @@ function toGeminiContents(messages: ChatMessage[]) {
     }));
 }
 
-// Gemini 原生接口请求（支持流式 alt=sse 与非流式 generateContent）
+// Gemini 接口请求：自动尝试多个候选地址（带/不带 /v1beta、流式/非流式），
+// 兼容各种反代配置；模型名自动清洗（兼容误填完整路径/URL）
+async function geminiFetchRaw(
+  url: string,
+  body: any,
+  apiKey: string,
+): Promise<{ ok: boolean; status: number; statusText: string; text: string }> {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text().catch(() => '');
+  return { ok: response.ok, status: response.status, statusText: response.statusText, text };
+}
+
+// 把 Gemini 流式响应（SSE/NDJSON）聚合为单个 JSON
+function aggregateGeminiStream(text: string): any {
+  const parts: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    let data = '';
+    if (line.startsWith('data: ')) data = line.slice(6).trim();
+    else if (line && !line.startsWith(':')) data = line;
+    if (!data || data === '[DONE]') continue;
+    try {
+      const json = JSON.parse(data);
+      const seg = json?.candidates?.[0]?.content?.parts
+        ?.map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
+        .join('');
+      if (seg) parts.push(seg);
+      else if (typeof json?.text === 'string') parts.push(json.text);
+    } catch (err) {
+      // 忽略非 JSON 行
+    }
+  }
+  return { candidates: [{ content: { parts: [{ text: parts.join('') }] } }] };
+}
+
 async function requestGeminiChat(
   messages: ChatMessage[],
   config: {
@@ -74,7 +106,15 @@ async function requestGeminiChat(
   },
   enableStreaming: boolean,
 ): Promise<ReadableStream | Response> {
-  const base = normalizeGeminiBaseURL(config.baseURL);
+  const base = config.baseURL.replace(/\/+$/, '');
+  const withV1beta = /\/v1beta$/i.test(base) ? base : `${base}/v1beta`;
+  const root = /\/v1beta$/i.test(base) ? base.replace(/\/v1beta$/i, '') : base;
+  const modelName = String(config.model || '')
+    .trim()
+    .split('/')
+    .pop() || config.model || '';
+  const key = config.apiKey || '';
+
   const systemText = messages
     .filter((m) => m.role === 'system')
     .map((m) => m.content)
@@ -90,28 +130,81 @@ async function requestGeminiChat(
     body.systemInstruction = { parts: [{ text: systemText }] };
   }
 
-  const action = enableStreaming
-    ? 'streamGenerateContent?alt=sse'
-    : 'generateContent';
-  const url = `${base}/models/${encodeURIComponent(config.model)}:${action}&key=${encodeURIComponent(config.apiKey)}`;
+  const keyQuery = `key=${encodeURIComponent(key)}`;
+  const nonStreamUrls = [
+    `${withV1beta}/models/${encodeURIComponent(modelName)}:generateContent?${keyQuery}`,
+    `${root}/models/${encodeURIComponent(modelName)}:generateContent?${keyQuery}`,
+  ];
+  const streamUrls = [
+    `${withV1beta}/models/${encodeURIComponent(modelName)}:streamGenerateContent?alt=sse&${keyQuery}`,
+    `${root}/models/${encodeURIComponent(modelName)}:streamGenerateContent?alt=sse&${keyQuery}`,
+  ];
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': config.apiKey,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    throw new Error(
-      `AI API error: ${response.status} ${response.statusText}${errText ? ` - ${errText.slice(0, 300)}` : ''}`,
-    );
+  const candidates: { url: string; streaming: boolean }[] = [];
+  if (enableStreaming) {
+    candidates.push(...streamUrls.map((u) => ({ url: u, streaming: true })));
+    candidates.push(...nonStreamUrls.map((u) => ({ url: u, streaming: false })));
+  } else {
+    candidates.push(...nonStreamUrls.map((u) => ({ url: u, streaming: false })));
+    candidates.push(...streamUrls.map((u) => ({ url: u, streaming: true })));
   }
 
-  return enableStreaming ? response.body! : response;
+  let lastError: Error | null = null;
+  let lastStatus = 0;
+  for (const candidate of candidates) {
+    let result;
+    try {
+      result = await geminiFetchRaw(candidate.url, body, key);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      continue;
+    }
+    if (result.ok) {
+      if (candidate.streaming) {
+        if (enableStreaming) {
+          return new Response(result.text, {
+            headers: { 'Content-Type': 'text/event-stream' },
+          });
+        }
+        return new Response(JSON.stringify(aggregateGeminiStream(result.text)), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (enableStreaming) {
+        const sseBody = result.text
+          .split(/\r?\n/)
+          .filter((l) => l.trim())
+          .map((l) => `data: ${l}`)
+          .join('\n') + '\n\ndata: [DONE]\n\n';
+        return new Response(sseBody, {
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }
+      return new Response(result.text, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    lastStatus = result.status;
+    lastError = new Error(
+      `AI API error: ${result.status} ${result.statusText}${
+        result.text ? ` - ${result.text.slice(0, 300)}` : ''
+      }`,
+    );
+    // 404/400/403/429 可能因反代路径或模型名导致，继续尝试下一个候选；其余错误直接结束
+    if (![404, 400, 403, 429].includes(result.status)) break;
+  }
+
+  const statusHint =
+    lastStatus === 404
+      ? '（模型不存在或不可用：请检查头像菜单 AI 设置中的模型名称，例如 gemini-2.5-flash，并在 Gemini 官网确认该模型已开放）'
+      : lastStatus === 400
+        ? '（API Key 无效或请求格式不正确：请检查头像菜单 AI 设置中的 API Key 是否完整，可到 https://aistudio.google.com/apikey 重新生成后复制，并确认模型名称正确）'
+        : lastStatus === 403
+          ? '（权限不足：请确认该模型已对当前账号开放，且 API Key 未超过配额）'
+          : lastStatus === 429
+            ? '（请求过于频繁：请稍后重试）'
+            : '';
+  throw lastError ? new Error(lastError.message + statusHint) : new Error('AI API error');
 }
 
 // AI 聊天请求（自动识别 OpenAI 兼容接口与 Gemini 原生接口）
