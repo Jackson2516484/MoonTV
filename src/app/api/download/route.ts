@@ -47,6 +47,72 @@ interface PlaylistResult {
   status: number;
 }
 
+interface SegmentList {
+  segments: string[];
+  /** EXT-X-MAP 初始化分片（fMP4 播放列表），无则为 null */
+  initSegment: string | null;
+}
+
+// 解析 m3u8 播放列表，返回所有分片
+// 主列表从最后一个变体开始尝试（通常码率最高），失败则自动回退到前一个
+async function fetchAllSegments(
+  m3u8Url: string,
+  referer: string | undefined,
+): Promise<SegmentList> {
+  const resolve = (seg: string) => resolveSegmentUrl(getBaseUrl(m3u8Url), seg);
+
+  const first = await fetchPlaylist(m3u8Url, referer);
+  if (!first.ok) {
+    throw new Error(`获取播放列表失败: HTTP ${first.status}`);
+  }
+  const lines = first.text.split(/\r?\n/);
+
+  // 主列表：收集变体
+  const variantUrls: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('#EXT-X-STREAM-INF:')) {
+      const next = lines[i + 1]?.trim();
+      if (next && !next.startsWith('#')) {
+        variantUrls.push(resolve(next));
+      }
+    }
+  }
+  if (variantUrls.length > 0) {
+    let lastError: Error | null = null;
+    for (let i = variantUrls.length - 1; i >= 0; i--) {
+      try {
+        const result = await fetchAllSegments(variantUrls[i], referer);
+        if (result.segments.length > 0) return result;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+    }
+    throw lastError || new Error('所有变体均无法解析');
+  }
+
+  // 媒体列表：校验内容后收集分片
+  if (!isPlaylistText(first.text)) {
+    throw new Error('播放列表内容无效（可能被服务器拦截或需要防盗链信息）');
+  }
+  // EXT-X-MAP:URI="init.mp4"（fMP4 分片的初始化段）
+  let initSegment: string | null = null;
+  const mapMatch = first.text.match(/#EXT-X-MAP:[^\r\n]*URI="([^"]+)"/);
+  if (mapMatch && mapMatch[1]) {
+    initSegment = resolve(mapMatch[1]);
+  }
+  const segments: string[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    segments.push(resolve(line));
+  }
+  if (segments.length === 0) {
+    throw new Error('播放列表中没有找到分片');
+  }
+  return { segments, initSegment };
+}
+
 async function fetchPlaylist(
   url: string,
   referer: string | undefined,
@@ -76,60 +142,6 @@ function isPlaylistText(text: string): boolean {
   return /#EXTM3U|#EXT-X-STREAM-INF|#EXTINF|#EXT-X-TARGETDURATION|#EXT-X-MEDIA-SEQUENCE/.test(
     text,
   );
-}
-
-// 解析 m3u8 播放列表，返回所有分片
-// 主列表从最后一个变体开始尝试（通常码率最高），失败则自动回退到前一个
-async function fetchAllSegments(
-  m3u8Url: string,
-  referer: string | undefined,
-): Promise<string[]> {
-  const resolve = (seg: string) => resolveSegmentUrl(getBaseUrl(m3u8Url), seg);
-
-  const first = await fetchPlaylist(m3u8Url, referer);
-  if (!first.ok) {
-    throw new Error(`获取播放列表失败: HTTP ${first.status}`);
-  }
-  const lines = first.text.split(/\r?\n/);
-
-  // 主列表：收集变体
-  const variantUrls: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith('#EXT-X-STREAM-INF:')) {
-      const next = lines[i + 1]?.trim();
-      if (next && !next.startsWith('#')) {
-        variantUrls.push(resolve(next));
-      }
-    }
-  }
-  if (variantUrls.length > 0) {
-    let lastError: Error | null = null;
-    for (let i = variantUrls.length - 1; i >= 0; i--) {
-      try {
-        const segments = await fetchAllSegments(variantUrls[i], referer);
-        if (segments.length > 0) return segments;
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-      }
-    }
-    throw lastError || new Error('所有变体均无法解析');
-  }
-
-  // 媒体列表：校验内容后收集分片
-  if (!isPlaylistText(first.text)) {
-    throw new Error('播放列表内容无效（可能被服务器拦截或需要防盗链信息）');
-  }
-  const segments: string[] = [];
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    segments.push(resolve(line));
-  }
-  if (segments.length === 0) {
-    throw new Error('播放列表中没有找到分片');
-  }
-  return segments;
 }
 
 // 原始资源透传（分片 / key / 直链文件）
@@ -200,15 +212,17 @@ export async function GET(request: NextRequest) {
 
     if (mode === 'segments') {
       // 服务端解析播放列表，返回经代理的同源分片地址，规避 CORS / 防盗链
-      const segments = await fetchAllSegments(url, referer);
+      const { segments, initSegment } = await fetchAllSegments(url, referer);
       const proxyPath = request.nextUrl.pathname;
-      const proxiedSegments = segments.map(
-        (segment) =>
-          `${proxyPath}?mode=raw&url=${encodeURIComponent(segment)}${
-            referer ? `&referer=${encodeURIComponent(referer)}` : ''
-          }`,
-      );
-      return NextResponse.json({ segments: proxiedSegments });
+      const toProxied = (segment: string) =>
+        `${proxyPath}?mode=raw&url=${encodeURIComponent(segment)}${
+          referer ? `&referer=${encodeURIComponent(referer)}` : ''
+        }`;
+      const proxiedSegments = segments.map(toProxied);
+      return NextResponse.json({
+        segments: proxiedSegments,
+        initSegment: initSegment ? toProxied(initSegment) : null,
+      });
     }
 
     return await proxyRaw(url, referer, request);

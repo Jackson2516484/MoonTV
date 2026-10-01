@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { normalizeChannelUrls, parseLiveContent } from '@/lib/live';
+import { buildChannelPrograms, fetchEpgData } from '@/lib/epg';
 
 export const runtime = 'edge';
 
@@ -42,10 +43,24 @@ export async function GET(request: NextRequest) {
     const result = parseLiveContent(sourceKey, content);
     const channels = normalizeChannelUrls(result.channels, url);
 
+    // 顺带抓取 EPG 节目单（失败不影响频道返回）
+    let programs: Record<string, unknown> = {};
+    if (result.tvgUrl) {
+      try {
+        const epg = await fetchEpgData(result.tvgUrl);
+        if (epg) {
+          programs = buildChannelPrograms(epg, channels);
+        }
+      } catch (err) {
+        console.error('EPG 处理失败（已忽略）:', err);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       channels,
       tvgUrl: result.tvgUrl,
+      programs,
     });
   } catch (error) {
     console.error('获取频道信息失败:', error);

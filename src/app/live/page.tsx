@@ -23,7 +23,7 @@ import {
   setLiveRelayBase,
   toAbsoluteUrl,
 } from '@/lib/dlna';
-import { downloadLiveDirect, recordVideoElement } from '@/lib/download';
+import { startElementRecording, startLiveRecording } from '@/lib/download';
 import {
   isM3u8Url,
   isUdpStreamUrl,
@@ -91,11 +91,12 @@ function LivePageClient() {
   const mpegtsRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 播放核心：单一 HLS 实例复用 + 预加载下一个频道
+  // 播放核心：单一 HLS 实例复用 + 预加载下一个频道（m3u8 用 HLS，ts/udp 用 mpegts）
   const mainHlsRef = useRef<any>(null);
   const preloadRef = useRef<{
     url: string;
-    hls: any;
+    hls?: any;
+    tsPlayer?: any;
     video: HTMLVideoElement;
   } | null>(null);
   const preloadTimerRef = useRef<number | null>(null);
@@ -126,6 +127,17 @@ function LivePageClient() {
   const [currentChannel, setCurrentChannel] = useState<LiveChannel | null>(
     null,
   );
+
+  // EPG 节目单：频道 id -> { now, next }
+  const [programs, setPrograms] = useState<
+    Record<
+      string,
+      {
+        now?: { title: string; start: number; stop: number };
+        next?: { title: string; start: number; stop: number };
+      }
+    >
+  >({});
 
   // 分组 / 搜索
   const [selectedGroup, setSelectedGroup] = useState<string>('全部');
@@ -231,6 +243,34 @@ function LivePageClient() {
     }
   }, [sourcesLoaded, configSources.length, customSources.length]);
 
+  // 为频道列表拉取 EPG 节目单（文件导入等内嵌频道场景）
+  const fetchProgramsForChannels = async (
+    list: LiveChannel[],
+    epgUrl?: string,
+  ) => {
+    if (!epgUrl || list.length === 0) return;
+    try {
+      const res = await fetch('/api/live/epg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: epgUrl,
+          channels: list.map((ch) => ({
+            id: ch.id,
+            tvgId: ch.tvgId,
+            name: ch.name,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.programs) {
+        setPrograms((prev) => ({ ...prev, ...data.programs }));
+      }
+    } catch (err) {
+      console.error('EPG 加载失败:', err);
+    }
+  };
+
   // 选择直播源：加载频道列表
   const handleSourceSelect = async (
     source: LiveSource,
@@ -239,6 +279,7 @@ function LivePageClient() {
     setCurrentSource(source);
     setCurrentChannel(null);
     setChannels([]);
+    setPrograms({});
     cancelPreload();
     setChannelError(null);
 
@@ -247,7 +288,10 @@ function LivePageClient() {
       Array.isArray((source as any).channels) &&
       (source as any).channels.length > 0
     ) {
-      setChannels((source as any).channels as LiveChannel[]);
+      const embedded = (source as any).channels as LiveChannel[];
+      setChannels(embedded);
+      // 内嵌源走独立 EPG 接口
+      fetchProgramsForChannels(embedded, (source as any).epg || source.epg);
       if (autoChannelId) {
         const found = (source as any).channels.find(
           (ch: LiveChannel) => ch.id === autoChannelId,
@@ -289,6 +333,10 @@ function LivePageClient() {
         ? data.channels
         : [];
       setChannels(nextChannels);
+      // 服务端已顺带返回 EPG 节目单
+      if (data.programs && typeof data.programs === 'object') {
+        setPrograms(data.programs);
+      }
 
       const nextCache = loadChannelCache();
       nextCache[source.key] = { channels: nextChannels, fetchedAt: Date.now() };
@@ -327,6 +375,12 @@ function LivePageClient() {
     if (preloadRef.current) {
       try {
         preloadRef.current.hls?.destroy();
+      } catch (err) {
+        // 忽略
+      }
+      try {
+        preloadRef.current.tsPlayer?.unload?.();
+        preloadRef.current.tsPlayer?.destroy?.();
       } catch (err) {
         // 忽略
       }
@@ -734,6 +788,32 @@ function LivePageClient() {
         }
       }
 
+      // TS/udp 预加载：把已缓冲的 mpegts 播放器直接挂到主 video 上
+      if (preloaded.tsPlayer) {
+        try {
+          video.removeAttribute('src');
+          preloaded.tsPlayer.detachMediaElement();
+          preloaded.tsPlayer.attachMediaElement(video);
+          mpegtsRef.current = preloaded.tsPlayer;
+          preloaded.video.remove();
+          preloadRef.current = null;
+          setIsVideoLoading(false);
+          video.play().catch(() => {});
+          player.play();
+          return true;
+        } catch (err) {
+          try {
+            preloaded.tsPlayer?.unload?.();
+            preloaded.tsPlayer?.destroy?.();
+          } catch (err2) {
+            // 忽略
+          }
+          preloaded.video?.remove();
+          preloadRef.current = null;
+          return false;
+        }
+      }
+
       let transferred = false;
       if (typeof preloaded.hls.transferMedia === 'function') {
         const mse = preloaded.hls.transferMedia();
@@ -761,33 +841,42 @@ function LivePageClient() {
       } catch (err2) {
         // 忽略
       }
+      try {
+        preloaded.tsPlayer?.unload?.();
+        preloaded.tsPlayer?.destroy?.();
+      } catch (err2) {
+        // 忽略
+      }
       preloaded.video?.remove();
       preloadRef.current = null;
       return false;
     }
   };
 
-  // 预加载下一个频道（当前频道稳定播放约 6 秒后开始）
-  const startPreload = () => {
+  // 预加载指定频道（默认下一个频道；也用于悬停预取）
+  const startPreload = (target?: LiveChannel) => {
     const s = stateRef.current;
     const current = s.currentChannel;
     const source = s.currentSource;
     if (!current || !source || s.channels.length === 0) return;
-    if (!Hls || typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return;
     if (preloadRef.current) cancelPreload();
 
-    const list = s.channels.filter((ch) => {
-      const groupOk =
-        s.selectedGroup === '全部' || ch.group === s.selectedGroup;
-      const keywordOk =
-        !s.keyword || ch.name.toLowerCase().includes(s.keyword.toLowerCase());
-      return groupOk && keywordOk;
-    });
-    const idx = list.findIndex((ch) => ch.id === current.id);
-    if (idx < 0 || list.length < 2) return;
-    const next = list[(idx + 1) % list.length];
+    let next: LiveChannel | undefined = target;
+    if (!next) {
+      const list = s.channels.filter((ch) => {
+        const groupOk =
+          s.selectedGroup === '全部' || ch.group === s.selectedGroup;
+        const keywordOk =
+          !s.keyword ||
+          ch.name.toLowerCase().includes(s.keyword.toLowerCase());
+        return groupOk && keywordOk;
+      });
+      const idx = list.findIndex((ch) => ch.id === current.id);
+      if (idx < 0 || list.length < 2) return;
+      next = list[(idx + 1) % list.length];
+    }
     if (!next || next.id === current.id) return;
-    if (!isM3u8Url(next.url)) return;
 
     const targetUrl = getPlaybackCandidates(next)[0];
     const video = document.createElement('video');
@@ -796,6 +885,42 @@ function LivePageClient() {
     video.style.display = 'none';
     document.body.appendChild(video);
 
+    // 非 m3u8（ts/flv/udp）：用 mpegts.js 在隐藏 video 上预缓冲
+    if (!isM3u8Url(next.url)) {
+      if (!Mpegts || typeof Mpegts.isSupported !== 'function' || !Mpegts.isSupported()) {
+        video.remove();
+        return;
+      }
+      try {
+        const tsPlayer = Mpegts.createPlayer(
+          { type: 'mpegts', isLive: true, url: targetUrl, cors: true },
+          {
+            enableWorker: true,
+            enableStashBuffer: true,
+            stashInitialSize: 4 * 1024 * 1024,
+            isLive: true,
+            liveBufferLatencyChasing: false,
+          },
+        );
+        tsPlayer.attachMediaElement(video);
+        tsPlayer.on(Mpegts.Events.ERROR, () => {
+          cancelPreload();
+        });
+        tsPlayer.load();
+        // 静音播放以填充 MSE 缓冲
+        video.play().catch(() => {});
+        preloadRef.current = { url: targetUrl, tsPlayer, video };
+        return;
+      } catch (err) {
+        video.remove();
+        return;
+      }
+    }
+
+    if (!Hls) {
+      video.remove();
+      return;
+    }
     const hls = new Hls({
       debug: false,
       enableWorker: true,
@@ -815,6 +940,26 @@ function LivePageClient() {
       cancelPreload();
     });
     preloadRef.current = { url: targetUrl, hls, video };
+  };
+
+  // 悬停频道项时预取（防抖），让任意切台都更快
+  const hoverPrefetchTimer = useRef<number | null>(null);
+  const handleChannelHover = (channel: LiveChannel) => {
+    if (channel.id === currentChannel?.id) return;
+    if (hoverPrefetchTimer.current) {
+      window.clearTimeout(hoverPrefetchTimer.current);
+    }
+    hoverPrefetchTimer.current = window.setTimeout(() => {
+      const s = stateRef.current;
+      if (s.currentChannel?.id === channel.id) return;
+      if (
+        preloadRef.current &&
+        preloadRef.current.url === getPlaybackCandidates(channel)[0]
+      ) {
+        return;
+      }
+      startPreload(channel);
+    }, 350);
   };
 
   // 选择频道播放（无缝切换）
@@ -882,10 +1027,35 @@ function LivePageClient() {
     };
   };
 
-  // 下载/录制当前直播（固定录制 30 秒保存到本地）
+  // 下载/录制当前直播：点一下开始，再点一下停止并保存（流式落盘）
+  const recordingRef = useRef<
+    | import('@/lib/download').LiveRecording
+    | import('@/lib/download').ElementRecording
+    | null
+  >(null);
+
   const handleLiveDownload = async () => {
     const ch = currentChannel;
-    if (!ch || downloading) return;
+    if (!ch) return;
+
+    // 正在录制 → 停止并保存
+    if (recordingRef.current) {
+      const rec = recordingRef.current;
+      recordingRef.current = null;
+      try {
+        setPlayTip(t('downloadingLive'));
+        await rec.stop();
+        setPlayTip(t('liveSaved'));
+      } catch (err) {
+        setPlayError(err instanceof Error ? err.message : '保存失败');
+      } finally {
+        setDownloading(false);
+        window.setTimeout(() => setPlayTip(null), 4000);
+      }
+      return;
+    }
+
+    if (downloading) return;
     setDownloading(true);
     setPlayError(null);
     setPlayTip(t('downloadingLive'));
@@ -897,28 +1067,36 @@ function LivePageClient() {
           video &&
           typeof MediaRecorder !== 'undefined' &&
           typeof (video as any).captureStream === 'function';
-        if (canRecord) {
-          await recordVideoElement(video as HTMLVideoElement, title, 30, (left) =>
-            setPlayTip(`${t('recordingLive')} ${left}s`),
-          );
-        } else {
+        if (!canRecord) {
           setPlayTip(t('liveRecordUnsupported'));
+          setDownloading(false);
           return;
         }
+        recordingRef.current = startElementRecording(
+          video as HTMLVideoElement,
+          title,
+          (elapsed) =>
+            setPlayTip(
+              `${t('recordingLive')} ${elapsed}s · ${t('stopRecording')}`,
+            ),
+        );
       } else {
-        await downloadLiveDirect(
+        recordingRef.current = await startLiveRecording(
           getLivePlaybackProxyUrl(ch.url, currentSource?.ua),
           title,
-          30,
-          (left) => setPlayTip(`${t('downloadingLive')} ${left}s`),
-          ch.url,
+          {
+            directUrl: ch.url,
+            onProgress: (elapsed) =>
+              setPlayTip(
+                `${t('recordingLive')} ${elapsed}s · ${t('stopRecording')}`,
+              ),
+          },
         );
       }
-      setPlayTip(t('liveSaved'));
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : '下载失败');
-    } finally {
+      recordingRef.current = null;
       setDownloading(false);
+      setPlayError(err instanceof Error ? err.message : '下载失败');
       window.setTimeout(() => setPlayTip(null), 4000);
     }
   };
@@ -996,6 +1174,8 @@ function LivePageClient() {
           channelNumber: result.channels.length,
           // 内嵌频道（文件导入不需要服务器）
           channels: result.channels as any,
+          // 保存 EPG 地址，供节目单使用
+          epg: result.tvgUrl || undefined,
         };
         const next = [...loadCustomSources(), source];
         saveCustomSources(next);
@@ -1252,6 +1432,20 @@ function LivePageClient() {
                 <p className='text-xs text-gray-500 dark:text-gray-400 truncate'>
                   {currentSource?.name} {'>'} {currentChannel.group}
                 </p>
+                {programs[currentChannel.id]?.now && (
+                  <p className='text-xs truncate'>
+                    <span className='text-green-600 dark:text-green-400'>
+                      {t('nowPlaying')}：{programs[currentChannel.id]?.now?.title}
+                    </span>
+                    {programs[currentChannel.id]?.next?.title && (
+                      <span className='text-gray-500 dark:text-gray-400'>
+                        {' | '}
+                        {t('upNext')}：
+                        {programs[currentChannel.id]?.next?.title}
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
             </div>
             <div className='flex items-center gap-2 flex-shrink-0'>
@@ -1276,16 +1470,22 @@ function LivePageClient() {
               </button>
               <button
                 onClick={handleLiveDownload}
-                disabled={downloading}
-                title={t('download')}
-                className='flex items-center gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors disabled:opacity-50'
+                title={downloading ? t('stopRecording') : t('download')}
+                className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                  downloading
+                    ? 'bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/60'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
               >
                 {downloading ? (
-                  <Loader2 className='w-4 h-4 animate-spin' />
+                  <span className='relative flex w-4 h-4'>
+                    <span className='absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60' />
+                    <span className='relative inline-flex h-4 w-4 rounded-full bg-red-500' />
+                  </span>
                 ) : (
                   <Download className='w-4 h-4' />
                 )}
-                {t('download')}
+                {downloading ? t('stopRecording') : t('download')}
               </button>
               <button
                 onClick={handleCast}
@@ -1367,6 +1567,7 @@ function LivePageClient() {
                     <li key={channel.id}>
                       <button
                         onClick={() => handleChannelSelect(channel)}
+                        onMouseEnter={() => handleChannelHover(channel)}
                         className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                           active
                             ? 'bg-green-50 dark:bg-green-900/20'
@@ -1391,7 +1592,13 @@ function LivePageClient() {
                             {channel.name}
                           </p>
                           <p className='text-xs text-gray-500 dark:text-gray-400 truncate'>
-                            {channel.group}
+                            {programs[channel.id]?.now?.title ? (
+                              <span className='text-green-600 dark:text-green-400'>
+                                {programs[channel.id]?.now?.title}
+                              </span>
+                            ) : (
+                              channel.group
+                            )}
                           </p>
                         </div>
                         <div

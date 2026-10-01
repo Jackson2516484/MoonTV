@@ -2,7 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { Loader2, MonitorPlay, Radio, RefreshCw, Search, X } from 'lucide-react';
+import { Loader2, MonitorPlay, Radio, RefreshCw, Search, Smartphone, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { castCurrentVideo } from '@/lib/cast';
@@ -13,6 +13,7 @@ import {
   scanDlnaDevices,
   setDlnaServerBase,
 } from '@/lib/dlna';
+import { MiniMqtt } from '@/lib/mqtt';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 interface CastModalProps {
@@ -37,6 +38,13 @@ export default function CastModal({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 手机遥控电视（MQTT 信令，无需同一局域网）
+  const [remoteCode, setRemoteCode] = useState('');
+  const [remoteMqtt, setRemoteMqtt] = useState<MiniMqtt | null>(null);
+  const [remoteState, setRemoteState] = useState<'idle' | 'connecting' | 'online'>('idle');
+  const [remoteTvOnline, setRemoteTvOnline] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     setServerBase(getDlnaServerBase());
@@ -45,6 +53,16 @@ export default function CastModal({
     setError(null);
     setCastingTo(null);
     handleScan();
+    return () => {
+      // 关闭弹窗时断开遥控信令
+      setRemoteMqtt((m) => {
+        m?.close();
+        return null;
+      });
+      setRemoteState('idle');
+      setRemoteTvOnline(false);
+      setRemoteError(null);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -105,6 +123,62 @@ export default function CastModal({
     }
   };
 
+  // ---- 手机遥控电视 ----
+  const handleRemoteConnect = () => {
+    const code = remoteCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setRemoteError(t('tvInvalidCode'));
+      return;
+    }
+    setRemoteError(null);
+    remoteMqtt?.close();
+    const mqtt = new MiniMqtt();
+    mqtt.onMessage((topic, payload) => {
+      if (topic !== `moontv/tv/${code}/status`) return;
+      try {
+        const s = JSON.parse(payload);
+        setRemoteTvOnline(!!s.online);
+      } catch {
+        // 忽略
+      }
+    });
+    mqtt.onConnect = () => {
+      setRemoteState('online');
+      mqtt.subscribe(`moontv/tv/${code}/status`);
+    };
+    mqtt.connect();
+    setRemoteMqtt(mqtt);
+    setRemoteState('connecting');
+  };
+
+  const handleRemoteDisconnect = () => {
+    remoteMqtt?.close();
+    setRemoteMqtt(null);
+    setRemoteState('idle');
+    setRemoteTvOnline(false);
+    setRemoteError(null);
+  };
+
+  const remoteSend = (cmd: Record<string, unknown>) => {
+    const code = remoteCode.trim();
+    if (!remoteMqtt || !/^\d{6}$/.test(code)) return;
+    remoteMqtt.publish(`moontv/tv/${code}/cmd`, JSON.stringify(cmd));
+  };
+
+  const handlePushCurrent = () => {
+    const target = buildCastTarget();
+    if (!target) {
+      setRemoteError(t('castNoVideo'));
+      return;
+    }
+    const url =
+      /^https?:\/\//i.test(target.url) && !target.url.startsWith('/')
+        ? target.url
+        : `${window.location.origin}${target.url.startsWith('/') ? '' : '/'}${target.url}`;
+    remoteSend({ type: 'play', url, title: target.title });
+    setRemoteError(null);
+  };
+
   if (!open) return null;
 
   return (
@@ -146,7 +220,7 @@ export default function CastModal({
               type='text'
               value={serverBase}
               onChange={(e) => setServerBase(e.target.value)}
-              placeholder='http://192.168.1.100:7777'
+              placeholder='http://192.168.1.100:8899'
               className='flex-1 min-w-0 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-green-500 focus:outline-none'
             />
             <button
@@ -165,6 +239,93 @@ export default function CastModal({
           <p className='text-xs text-gray-500 dark:text-gray-400 -mt-1'>
             {t('castServerHint')}
           </p>
+
+          {/* 手机遥控电视（配对码信令） */}
+          <div className='rounded-xl bg-gray-50 dark:bg-gray-800/60 p-3 space-y-2'>
+            <p className='text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5'>
+              <Smartphone className='w-4 h-4 text-green-500' />
+              {t('tvRemote')}
+            </p>
+            <p className='text-xs text-gray-500 dark:text-gray-400'>
+              {t('tvOpenHint')}
+            </p>
+            {remoteState === 'idle' ? (
+              <div className='flex items-center gap-2'>
+                <input
+                  type='text'
+                  value={remoteCode}
+                  onChange={(e) =>
+                    setRemoteCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                  }
+                  placeholder={t('tvPairCode')}
+                  inputMode='numeric'
+                  maxLength={6}
+                  className='flex-1 min-w-0 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm font-mono tracking-[0.3em] text-center text-gray-900 dark:text-white placeholder-gray-400 placeholder:tracking-normal focus:border-green-500 focus:outline-none'
+                />
+                <button
+                  onClick={handleRemoteConnect}
+                  className='flex-shrink-0 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors'
+                >
+                  {t('tvConnect')}
+                </button>
+              </div>
+            ) : (
+              <div className='space-y-2'>
+                <div className='flex items-center justify-between'>
+                  <span className='text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1.5'>
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full ${remoteTvOnline ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`}
+                    />
+                    {remoteTvOnline ? t('tvConnected') : t('tvConnecting')}
+                  </span>
+                  <button
+                    onClick={handleRemoteDisconnect}
+                    className='text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  >
+                    {t('tvDisconnect')}
+                  </button>
+                </div>
+                <div className='grid grid-cols-2 gap-2'>
+                  <button
+                    onClick={handlePushCurrent}
+                    disabled={remoteState !== 'online'}
+                    className='rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 transition-colors'
+                  >
+                    {t('tvPushCurrent')}
+                  </button>
+                  <button
+                    onClick={() => remoteSend({ type: 'toggle' })}
+                    disabled={remoteState !== 'online'}
+                    className='rounded-lg bg-gray-200 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors'
+                  >
+                    {t('tvPlayPause')}
+                  </button>
+                  <button
+                    onClick={() => remoteSend({ type: 'volumeDown' })}
+                    disabled={remoteState !== 'online'}
+                    className='rounded-lg bg-gray-200 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors'
+                  >
+                    {t('tvVolumeDown')}
+                  </button>
+                  <button
+                    onClick={() => remoteSend({ type: 'volumeUp' })}
+                    disabled={remoteState !== 'online'}
+                    className='rounded-lg bg-gray-200 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors'
+                  >
+                    {t('tvVolumeUp')}
+                  </button>
+                </div>
+                <p className='text-xs text-gray-400 dark:text-gray-500'>
+                  {t('tvRemoteHint')}
+                </p>
+              </div>
+            )}
+            {remoteError && (
+              <p className='text-xs text-red-600 dark:text-red-400'>
+                {remoteError}
+              </p>
+            )}
+          </div>
 
           {/* 设备列表 */}
           {scanning && (
