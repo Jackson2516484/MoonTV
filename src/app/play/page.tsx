@@ -1805,9 +1805,13 @@ function PlayPageClient() {
 
   // 下载当前视频
   const handleDownload = async () => {
+    // 注意：hls.js 播放时会把 video.currentSrc 换成 blob: 地址（MediaSource，不可下载），
+    // 此时必须用原始的 videoUrl，否则会误走到直接下载导致"网络问题"失败。
+    const rawSrc = artPlayerRef.current?.video?.currentSrc as
+      | string
+      | undefined;
     const currentUrl =
-      (artPlayerRef.current?.video?.currentSrc as string | undefined) ||
-      videoUrl;
+      (rawSrc && /^https?:/i.test(rawSrc) ? rawSrc : '') || videoUrl;
     if (!currentUrl) {
       setError('暂无可用下载地址');
       return;
