@@ -63,7 +63,9 @@ async function fetchAllSegments(
 
   const first = await fetchPlaylist(m3u8Url, referer);
   if (!first.ok) {
-    throw new Error(`获取播放列表失败: HTTP ${first.status}`);
+    throw new Error(
+      `视频源链接已失效（HTTP ${first.status}），请返回搜索页切换其他视频源后重试`,
+    );
   }
   const lines = first.text.split(/\r?\n/);
 

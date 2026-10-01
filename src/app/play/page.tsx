@@ -1793,9 +1793,13 @@ function PlayPageClient() {
 
   // 投屏目标地址（绝对地址，供电视/盒子拉流）
   const buildCastTarget = () => {
+    // 注意：hls.js 播放时 video.currentSrc 是 blob: 地址（仅本机浏览器有效），
+    // 推送给电视/投屏设备必须用原始 videoUrl，否则对方黑屏播不出。
+    const rawSrc = artPlayerRef.current?.video?.currentSrc as
+      | string
+      | undefined;
     const currentUrl =
-      (artPlayerRef.current?.video?.currentSrc as string | undefined) ||
-      videoUrl;
+      (rawSrc && /^https?:/i.test(rawSrc) ? rawSrc : '') || videoUrl;
     if (!currentUrl) return null;
     return {
       url: toAbsoluteUrl(currentUrl),
