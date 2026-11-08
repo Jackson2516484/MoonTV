@@ -86,6 +86,21 @@ export function setLiveRelayBase(base: string): void {
   }
 }
 
+// 转播中转（server/relay.js）的 HLS 地址：中转机用 ffmpeg 把裸 TS 流
+// 实时转封装为 HLS，浏览器/iOS/电视 WebView 都能原生播放——这是网页端
+// 接近 APTV（原生播放器直连 TS）体验的唯一可行路径。未配置中转返回 null。
+export function getLiveRelayHlsUrl(url: string, ua?: string): string | null {
+  const relay = getLiveRelayBase();
+  if (!relay) return null;
+  const params = new URLSearchParams({ url });
+  if (ua) params.set('ua', ua);
+  return `${relay}/hls?${params.toString()}`;
+}
+
+export function isRelayHlsUrl(url: string): boolean {
+  return /\/hls\?url=/.test(url || '');
+}
+
 // 生成直播播放地址候选列表：优先本站边缘代理（Cloudflare 网络，速度快），
 // 配置了中转服务时把中转地址作为兜底（可访问国内 http 源）
 export function getLivePlaybackCandidates(

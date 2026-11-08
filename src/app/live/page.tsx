@@ -21,6 +21,8 @@ import {
   getLivePlaybackCandidates,
   getLivePlaybackProxyUrl,
   getLiveRelayBase,
+  getLiveRelayHlsUrl,
+  isRelayHlsUrl,
   setLiveRelayBase,
   toAbsoluteUrl,
 } from '@/lib/dlna';
@@ -435,9 +437,15 @@ function LivePageClient() {
     }
   };
 
-  // 播放地址候选：优先本站边缘代理（Cloudflare 网络，速度快），中转兜底
+  // 播放地址候选：TS 频道在配置了转播中转时优先走中转 HLS（原生播放，
+  // 接近 APTV 体验），其次本站边缘代理（mpegts.js），中转透传兜底
   const getPlaybackCandidates = (channel: LiveChannel): string[] => {
-    return getLivePlaybackCandidates(channel.url, currentSource?.ua);
+    const base = getLivePlaybackCandidates(channel.url, currentSource?.ua);
+    if (!isM3u8Url(channel.url)) {
+      const relayHls = getLiveRelayHlsUrl(channel.url, currentSource?.ua);
+      if (relayHls) return [relayHls, ...base];
+    }
+    return base;
   };
 
   // 尝试切换下一个播放通道（边缘→中转）；返回是否已切换
@@ -476,7 +484,7 @@ function LivePageClient() {
     }
     setPlayError(null);
     setIsVideoLoading(true);
-    if (isM3u8Url(channel.url)) {
+    if (isRelayHlsUrl(nextUrl) || isM3u8Url(channel.url)) {
       createHlsForVideo(video, nextUrl, channel, next);
     } else {
       createDirectPlayback(video, nextUrl, channel, next);
@@ -491,8 +499,39 @@ function LivePageClient() {
     channel: LiveChannel,
     attemptIndex = 0,
   ) => {
-    if (!Hls) {
-      console.error('HLS.js 未加载');
+    // 清理同一 video 上的旧 HLS 实例，避免双实例抢解码
+    if (video.hls) {
+      try {
+        video.hls.destroy?.();
+      } catch (err) {
+        // 忽略
+      }
+      if (mainHlsRef.current === video.hls) mainHlsRef.current = null;
+      video.hls = null;
+    }
+    // 无 MSE 的环境（典型是 iOS Safari）：Hls.js 根本跑不了，但系统原生
+    // 支持 HLS —— 此前这里静默失败，是 iPhone 上 m3u8/中转流黑屏的根因
+    const hlsSupported =
+      Hls && typeof (Hls as any).isSupported === 'function'
+        ? (Hls as any).isSupported()
+        : !!Hls;
+    if (!hlsSupported) {
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.onerror = () => {
+          if (!tryNextPlaybackCandidate(video, channel, attemptIndex)) {
+            setIsVideoLoading(false);
+            setPlayError(t('livePlayFailed'));
+          }
+        };
+        video.src = url;
+        video.play().catch(() => {
+          // 自动播放被拦截时等用户手势，不报播放错误
+        });
+        return;
+      }
+      console.error('当前浏览器不支持 HLS 播放');
+      setIsVideoLoading(false);
+      setPlayError(t('livePlayFailed'));
       return;
     }
     const hls = new Hls({
@@ -783,8 +822,8 @@ function LivePageClient() {
           },
           customType: {
             m3u8: (video: HTMLVideoElement, url: string) => {
-              // 按频道真实地址分流：m3u8 走 HLS，直链流走 mpegts/原生
-              if (isM3u8Url(channel.url)) {
+              // 按候选地址分流：中转 HLS / m3u8 频道走 HLS，直链流走 mpegts/原生
+              if (isRelayHlsUrl(url) || isM3u8Url(channel.url)) {
                 createHlsForVideo(video, url, channel, 0);
               } else {
                 createDirectPlayback(video, url, channel, 0);
@@ -832,10 +871,25 @@ function LivePageClient() {
       mpegtsRef.current = null;
     }
 
-    // 直链流：使用 mpegts.js / 原生播放（经代理，规避混合内容/防盗链）
+    // 直链流：配置了转播中转时优先走中转 HLS（原生解码，接近 APTV）；
+    // 否则 mpegts.js / 原生播放（经代理，规避混合内容/防盗链）。
     // 保持 loading 态直至真正出画（playing 事件里清除），不再假装已加载
     if (!isM3u8Url(channel.url)) {
       setIsVideoLoading(true);
+      if (isRelayHlsUrl(targetUrl)) {
+        // 切走上一个 HLS 实例的复用状态，createHlsForVideo 会新建
+        if (video.hls) {
+          try {
+            video.hls.destroy?.();
+          } catch (err) {
+            // 忽略
+          }
+          video.hls = null;
+          mainHlsRef.current = null;
+        }
+        createHlsForVideo(video, targetUrl, channel, attemptIdx);
+        return;
+      }
       createDirectPlayback(video, targetUrl, channel, attemptIdx);
       return;
     }
