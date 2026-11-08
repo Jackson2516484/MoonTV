@@ -1,5 +1,7 @@
 /* eslint-disable no-console */
 
+import { Directory, Filesystem } from '@capacitor/filesystem';
+
 import { isMp4Data, TsToMp4Converter } from './remux';
 
 // 获取原始地址的 Referer（默认用其自身域名，规避防盗链）
@@ -61,16 +63,31 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+// Uint8Array 转 Base64（分块处理，避免大数组爆栈；不用展开运算符，兼容 es5 target）
+export function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const sub = bytes.subarray(i, i + CHUNK);
+    binary += String.fromCharCode.apply(
+      null,
+      Array.prototype.slice.call(sub) as number[],
+    );
+  }
+  return btoa(binary);
+}
+
 // 在 App / 网页中把 Blob 保存到本地
 async function saveBlobToDevice(blob: Blob, filename: string): Promise<void> {
   if (isNativeApp()) {
     try {
-      const cap = (window as any).Capacitor;
+      // 用官方导入的 Filesystem 插件（此前用未注册的全局 cap.Plugins 对象，
+      // 在新版 Capacitor 下可能根本不存在，保存会静默失败回退）
       const base64 = await blobToBase64(blob);
-      await cap.Plugins.Filesystem.writeFile({
+      await Filesystem.writeFile({
         path: filename,
         data: base64,
-        directory: cap.Plugins.Filesystem.Directory.Documents,
+        directory: Directory.Documents,
         recursive: true,
       });
       // 尝试通过系统分享面板让用户保存/发送（部分系统支持）
@@ -131,6 +148,70 @@ export async function downloadM3u8(
   const initSegmentUrl: string | null =
     typeof data.initSegment === 'string' ? data.initSegment : null;
 
+  // AES-128 解密准备（EXT-X-KEY）：取回 key 并导入 WebCrypto
+  // 无显式 IV 时按 HLS 规范用（媒体序号 + 分片序号）作 IV
+  let decryptSegment:
+    | ((buf: Uint8Array, index: number) => Promise<Uint8Array>)
+    | null = null;
+  const enc = (data as any).encryption as
+    | { keyUrl: string; iv: string | null; mediaSequence: number }
+    | null
+    | undefined;
+  if (enc && enc.keyUrl) {
+    try {
+      const keyBuffer = await (
+        await fetchWithRetry(enc.keyUrl, 4)
+      ).arrayBuffer();
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyBuffer,
+        { name: 'AES-CBC' },
+        false,
+        ['decrypt'],
+      );
+      const explicitIv = enc.iv
+        ? Uint8Array.from(
+            enc.iv.match(/.{2}/g)!.map((h) => parseInt(h, 16)),
+          )
+        : null;
+      decryptSegment = async (buf, index) => {
+        let iv: Uint8Array;
+        if (explicitIv) {
+          iv = explicitIv;
+        } else {
+          iv = new Uint8Array(16);
+          let seq = (enc.mediaSequence || 0) + index;
+          for (let i = 15; i >= 0 && seq > 0; i--) {
+            iv[i] = seq % 256;
+            seq = Math.floor(seq / 256);
+          }
+        }
+        const plain = await crypto.subtle.decrypt(
+          { name: 'AES-CBC', iv: iv as Uint8Array<ArrayBuffer> },
+          cryptoKey,
+          buf as Uint8Array<ArrayBuffer>,
+        );
+        return new Uint8Array(plain);
+      };
+    } catch (err) {
+      throw new Error('该视频为加密源，获取解密密钥失败，无法下载');
+    }
+  }
+
+  // 拉取单个分片（带较强重试；加密源在此解密）
+  const fetchSegmentBytes = async (index: number): Promise<Uint8Array> => {
+    const response = await fetchWithRetry(segments[index], 4);
+    const raw = new Uint8Array(await response.arrayBuffer());
+    if (decryptSegment) {
+      try {
+        return await decryptSegment(raw, index);
+      } catch (err) {
+        throw new Error('分片解密失败：该视频源的加密方式不受支持');
+      }
+    }
+    return raw;
+  };
+
   const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_').trim() || 'video';
   const filename = `${safeTitle}.mp4`;
   const total = segments.length;
@@ -148,7 +229,31 @@ export async function downloadM3u8(
     write: (data: Uint8Array) => Promise<void>;
     close: () => Promise<void>;
   } | null = null;
-  if (typeof w.showSaveFilePicker === 'function') {
+  // App（Capacitor）内改为流式 appendFile 落盘：此前整集先拼成一个 Blob
+  // 再转 Base64（内存里同时躺着原数据 + base64 两份），长剧集必然爆内存失败
+  if (isNativeApp()) {
+    try {
+      await Filesystem.writeFile({
+        path: filename,
+        data: '',
+        directory: Directory.Documents,
+        recursive: true,
+      });
+      writer = {
+        write: async (chunk: Uint8Array) => {
+          await Filesystem.appendFile({
+            path: filename,
+            data: bytesToBase64(chunk),
+            directory: Directory.Documents,
+          });
+        },
+        close: async () => {},
+      };
+    } catch (err) {
+      writer = null; // 回退到内存 Blob 方案
+    }
+  }
+  if (!writer && typeof w.showSaveFilePicker === 'function') {
     try {
       const handle = await w.showSaveFilePicker({
         suggestedName: filename,
@@ -181,11 +286,8 @@ export async function downloadM3u8(
     return Promise.resolve();
   };
 
-  // 3. 下载首个分片，嗅探容器类型决定是否转封装
-  const firstBuffer = await (
-    await fetchWithRetry(segments[0])
-  ).arrayBuffer();
-  const firstU8 = new Uint8Array(firstBuffer);
+  // 3. 下载首个分片（已解密），嗅探容器类型决定是否转封装
+  const firstU8 = await fetchSegmentBytes(0);
   const converter = isMp4Data(firstU8) ? null : new TsToMp4Converter();
   if (converter) {
     converter.onData = (chunk) => {
@@ -230,15 +332,19 @@ export async function downloadM3u8(
   await handleSegment(0, firstU8);
   writeIndex = 1;
 
+  // 第一遍并发下载：单个分片失败先记下，不让整集陪葬
+  const failedIndexes: number[] = [];
   const worker = async () => {
     for (;;) {
       const i = nextIndex++;
       if (i >= total) break;
-      const response = await fetchWithRetry(segments[i]);
-      const buffer = await response.arrayBuffer();
-      pending.set(i, new Uint8Array(buffer));
-      done++;
-      onProgress?.(done, total);
+      try {
+        pending.set(i, await fetchSegmentBytes(i));
+        done++;
+        onProgress?.(done, total);
+      } catch (err) {
+        failedIndexes.push(i);
+      }
       await flush();
     }
   };
@@ -247,7 +353,31 @@ export async function downloadM3u8(
     await Promise.all(
       Array.from({ length: Math.min(CONCURRENCY, total) }, () => worker()),
     );
+    // 第二遍：低并发补下失败分片（多为瞬时限流/抖动，补下成功率很高）
+    if (failedIndexes.length > 0) {
+      const retryQueue = [...failedIndexes].sort((a, b) => a - b);
+      const retryWorker = async () => {
+        for (;;) {
+          const i = retryQueue.shift();
+          if (i === undefined) break;
+          try {
+            pending.set(i, await fetchSegmentBytes(i));
+            done++;
+            onProgress?.(done, total);
+          } catch (err) {
+            // 仍然失败：留给下方按 writeIndex 统一报缺口数
+          }
+          await flush();
+        }
+      };
+      await Promise.all([retryWorker(), retryWorker()]);
+    }
     await flush();
+    if (writeIndex < total) {
+      throw new Error(
+        `仍有 ${total - writeIndex} 个分片下载失败，视频源不稳定，请稍后重试或切换视频源`,
+      );
+    }
     if (converter) {
       converter.flush();
       if (!converter.hasOutput) {

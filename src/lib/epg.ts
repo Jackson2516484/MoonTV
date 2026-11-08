@@ -50,19 +50,26 @@ export function parseXmltv(xml: string): EpgData {
     if (names.length > 0) channels.set(id, names);
   }
 
-  const progRe =
-    /<programme\s+start="([^"]*)"\s+stop="([^"]*)"\s+channel="([^"]*)">([\s\S]*?)<\/programme>/g;
+  // 属性顺序无关：XMLTV 规范并无属性顺序要求，不同源站写法不同
+  // （51zmt 用 start/stop/channel，fanmingming 等用 channel/start/stop），
+  // 此前写死顺序导致后者整表解析为 0 条节目
+  const progRe = /<programme\s+([^>]*)>([\s\S]*?)<\/programme>/g;
   while ((m = progRe.exec(xml))) {
-    const titleM = /<title[^>]*>([^<]*)<\/title>/.exec(m[4]);
-    const descM = /<desc[^>]*>([^<]*)<\/desc>/.exec(m[4]);
-    const list = programmes.get(m[3]) || [];
+    const attrs = m[1];
+    const startM = /start="([^"]*)"/.exec(attrs);
+    const stopM = /stop="([^"]*)"/.exec(attrs);
+    const channelM = /channel="([^"]*)"/.exec(attrs);
+    if (!startM || !stopM || !channelM) continue;
+    const titleM = /<title[^>]*>([^<]*)<\/title>/.exec(m[2]);
+    const descM = /<desc[^>]*>([^<]*)<\/desc>/.exec(m[2]);
+    const list = programmes.get(channelM[1]) || [];
     list.push({
-      start: parseXmltvTime(m[1]),
-      stop: parseXmltvTime(m[2]),
+      start: parseXmltvTime(startM[1]),
+      stop: parseXmltvTime(stopM[1]),
       title: titleM ? titleM[1].trim() : '',
       desc: descM ? descM[1].trim() : undefined,
     });
-    programmes.set(m[3], list);
+    programmes.set(channelM[1], list);
   }
 
   programmes.forEach((progList) => {
@@ -173,7 +180,23 @@ const EPG_CACHE_TTL = 6 * 60 * 60 * 1000;
 const EPG_MAX_BYTES = 15 * 1024 * 1024;
 const epgCache = new Map<string, { at: number; data: EpgData }>();
 
-export async function fetchEpgData(epgUrl: string): Promise<EpgData | null> {
+// 备用 EPG 源：主源（如 51zmt 老张）更新不稳定，实测出现过节目表停在
+// 两天前、全天 now/next 全空的情况；fanmingming 源每日更新、覆盖更全。
+const FALLBACK_EPG_URLS = ['https://live.fanmingming.com/e.xml'];
+
+// 数据新鲜度：所有节目都已播完（最大 stop 早于当前）即视为过期数据
+function isEpgStale(data: EpgData): boolean {
+  const now = Date.now();
+  let maxStop = 0;
+  data.programmes.forEach((list) => {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].stop > maxStop) maxStop = list[i].stop;
+    }
+  });
+  return maxStop > 0 && maxStop < now;
+}
+
+async function fetchEpgDataOnce(epgUrl: string): Promise<EpgData | null> {
   const cached = epgCache.get(epgUrl);
   if (cached && Date.now() - cached.at < EPG_CACHE_TTL) {
     return cached.data;
@@ -230,4 +253,20 @@ export async function fetchEpgData(epgUrl: string): Promise<EpgData | null> {
     console.error('EPG 抓取异常:', err);
     return cached?.data || null;
   }
+}
+
+export async function fetchEpgData(epgUrl: string): Promise<EpgData | null> {
+  const primary = await fetchEpgDataOnce(epgUrl);
+  // 主源抓到但节目已全部过期（源站没更新）时，自动换备用源
+  if (primary && !isEpgStale(primary)) return primary;
+  for (const fb of FALLBACK_EPG_URLS) {
+    if (fb === epgUrl) continue;
+    const alt = await fetchEpgDataOnce(fb);
+    if (alt && !isEpgStale(alt)) {
+      // 以请求地址为键缓存备用数据，下次直接命中
+      epgCache.set(epgUrl, { at: Date.now(), data: alt });
+      return alt;
+    }
+  }
+  return primary;
 }

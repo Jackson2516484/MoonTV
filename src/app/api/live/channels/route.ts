@@ -3,7 +3,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { normalizeChannelUrls, parseLiveContent } from '@/lib/live';
-import { buildChannelPrograms, fetchEpgData } from '@/lib/epg';
 
 export const runtime = 'edge';
 
@@ -43,24 +42,14 @@ export async function GET(request: NextRequest) {
     const result = parseLiveContent(sourceKey, content);
     const channels = normalizeChannelUrls(result.channels, url);
 
-    // 顺带抓取 EPG 节目单（失败不影响频道返回）
-    let programs: Record<string, unknown> = {};
-    if (result.tvgUrl) {
-      try {
-        const epg = await fetchEpgData(result.tvgUrl);
-        if (epg) {
-          programs = buildChannelPrograms(epg, channels);
-        }
-      } catch (err) {
-        console.error('EPG 处理失败（已忽略）:', err);
-      }
-    }
-
+    // 不再在此串行抓 EPG：整份 XMLTV 下载+解析曾阻塞频道返回数秒到
+    // 20 秒（冷 isolate 更久），表现为“频道列表迟迟不出”。改为只回
+    // tvgUrl，客户端拿到频道后另走 /api/live/epg 异步填充节目单。
     return NextResponse.json({
       success: true,
       channels,
       tvgUrl: result.tvgUrl,
-      programs,
+      programs: {},
     });
   } catch (error) {
     console.error('获取频道信息失败:', error);

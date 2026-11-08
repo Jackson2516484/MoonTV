@@ -57,15 +57,44 @@ export default function TvPage() {
     }
   };
 
-  const playUrl = (url: string, name: string) => {
+  const lastPlayRef = useRef<{
+    url: string;
+    name: string;
+    kind?: string;
+    retries: number;
+  } | null>(null);
+
+  const playUrl = (url: string, name: string, kind?: string, isRetry = false) => {
     const video = videoRef.current;
     if (!video || !url) return;
+    if (!isRetry) {
+      lastPlayRef.current = { url, name, kind, retries: 0 };
+    }
+    const scheduleRetryOrHint = () => {
+      const lp = lastPlayRef.current;
+      if (lp && lp.url === url && lp.retries < 2) {
+        lp.retries++;
+        window.setTimeout(() => playUrl(url, name, kind, true), 1200);
+      } else {
+        setHint(t('tvPlayFailed'));
+      }
+    };
     cleanupPlayer();
     setTitle(name || '');
     setHint(null);
-    const isM3u8 = /\.m3u8?($|\?)/i.test(url);
+    // 流类型判定优先级：手机显式给的 kind > 代理端点名 > 原始地址后缀。
+    // 此前只看 URL 后缀：TS 流经 stream.m3u8 代理地址会被误判为 HLS，
+    // 用 hls.js 解析裸 TS 必然无画面（投屏黑屏根因）。
+    const isM3u8 =
+      kind === 'm3u8' ||
+      (!kind && /\/stream\.m3u8($|\?)/i.test(url)) ||
+      (!kind && /\.m3u8?($|\?)/i.test(url));
     const isFlvTs =
-      /\.(flv|ts)($|\?)|x-flv/i.test(url) || /\/udp\//i.test(url);
+      kind === 'ts' ||
+      kind === 'flv' ||
+      /\/stream\.ts($|\?)/i.test(url) ||
+      /\.(flv|ts)($|\?)|x-flv/i.test(url) ||
+      /\/udp\//i.test(url);
     try {
       if (isM3u8 && Hls && Hls.isSupported()) {
         const hls = new Hls({ enableWorker: true });
@@ -73,7 +102,7 @@ export default function TvPage() {
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.ERROR, (_: any, data: any) => {
-          if (data?.fatal) setHint(t('tvPlayFailed'));
+          if (data?.fatal) scheduleRetryOrHint();
         });
         video.play().catch(() => {});
       } else if (
@@ -84,10 +113,23 @@ export default function TvPage() {
       ) {
         const player = Mpegts.createPlayer(
           { type: 'mpegts', isLive: true, url, cors: true },
-          { enableWorker: true, enableStashBuffer: true, isLive: true },
+          {
+            enableWorker: true,
+            enableStashBuffer: true,
+            stashInitialSize: 512 * 1024,
+            isLive: true,
+            liveBufferLatencyChasing: true,
+            liveBufferLatencyMaxLatency: 3,
+            liveBufferLatencyMinRemain: 0.5,
+          },
         );
         mpegtsRef.current = player;
         player.attachMediaElement(video);
+        if (Mpegts.Events?.ERROR) {
+          player.on(Mpegts.Events.ERROR, () => {
+            scheduleRetryOrHint();
+          });
+        }
         player.load();
         video.play().catch(() => {});
         player.play?.();
@@ -109,7 +151,7 @@ export default function TvPage() {
       Mpegts = mod.default || mod;
     });
 
-    const mqtt = new MiniMqtt();
+    const mqtt = new MiniMqtt(undefined, code);
     mqttRef.current = mqtt;
     mqtt.onMessage((topic, payload) => {
       if (topic !== CMD_TOPIC(code)) return;
@@ -121,9 +163,17 @@ export default function TvPage() {
       }
       const video = videoRef.current;
       switch (cmd.type) {
+        case 'ping':
+          // 手机上线询问：立即回一份 retained 在线状态
+          mqtt.publish(
+            STATUS_TOPIC(code),
+            JSON.stringify({ online: true, ts: Date.now() }),
+            { retain: true },
+          );
+          break;
         case 'play':
           if (typeof cmd.url === 'string') {
-            playUrl(cmd.url, cmd.title || '');
+            playUrl(cmd.url, cmd.title || '', cmd.kind);
           }
           break;
         case 'pause':
@@ -169,11 +219,12 @@ export default function TvPage() {
     mqtt.onConnect = () => {
       setMqttState('online');
       mqtt.subscribe(CMD_TOPIC(code));
-      // 上线广播，手机端可感知
+      // 上线广播（retained：手机后连接也能立即收到，不再错过一次性广播）
       window.setTimeout(() => {
         mqtt.publish(
           STATUS_TOPIC(code),
           JSON.stringify({ online: true, ts: Date.now() }),
+          { retain: true },
         );
       }, 500);
     };

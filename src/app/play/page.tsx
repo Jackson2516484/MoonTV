@@ -30,7 +30,7 @@ import AIComments from '@/components/AIComments';
 import PageLayout from '@/components/PageLayout';
 
 import CastModal from '@/components/CastModal';
-import { toAbsoluteUrl } from '@/lib/dlna';
+import { getLiveCastProxyUrl, toAbsoluteUrl } from '@/lib/dlna';
 import { downloadDirect, downloadM3u8, isM3u8Url } from '@/lib/download';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -1801,9 +1801,13 @@ function PlayPageClient() {
     const currentUrl =
       (rawSrc && /^https?:/i.test(rawSrc) ? rawSrc : '') || videoUrl;
     if (!currentUrl) return null;
+    // 投屏走本站代理地址：直推原始源地址时，电视常因防盗链 Referer、
+    // http 混合内容或相对分片地址播不出；代理已做分片重写与同源化
+    const proxied = getLiveCastProxyUrl(currentUrl);
     return {
-      url: toAbsoluteUrl(currentUrl),
+      url: toAbsoluteUrl(proxied),
       title: `${videoTitle || '视频'}_第${currentEpisodeIndex + 1}集`,
+      kind: isM3u8Url(currentUrl) ? 'm3u8' : 'ts',
     };
   };
 

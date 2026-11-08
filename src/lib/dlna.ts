@@ -100,6 +100,22 @@ export function getLivePlaybackCandidates(
   return [edge, `${relay}/api/live/proxy?${params.toString()}`];
 }
 
+// 生成投屏专用地址：TS/直链流必须走 stream.ts 端点，m3u8 走 stream.m3u8。
+// 此前一律用 stream.m3u8 地址推送 TS 流，电视端按 .m3u8 用 HLS 解析裸 TS
+// 必然失败（投屏无画面的根因之一）；DLNA 电视同理。
+export function getLiveCastProxyUrl(url: string, ua?: string): string {
+  const params = new URLSearchParams({ url });
+  if (ua) params.set('ua', ua);
+  const relay = getLiveRelayBase();
+  if (relay) {
+    return `${relay}/api/live/proxy?${params.toString()}`;
+  }
+  const isM3u8 = /\.m3u8?($|\?)/i.test(url);
+  return isM3u8
+    ? `/api/live/play/stream.m3u8?${params.toString()}`
+    : `/api/live/play/stream.ts?${params.toString()}`;
+}
+
 // 生成直播播放地址：设置了中转服务时走伴生服务（可访问国内 http 源），否则走本站边缘代理
 export function getLivePlaybackProxyUrl(url: string, ua?: string): string {
   const params = new URLSearchParams({ url });

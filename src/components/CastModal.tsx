@@ -20,7 +20,7 @@ interface CastModalProps {
   open: boolean;
   onClose: () => void;
   getVideo?: () => HTMLVideoElement | undefined;
-  buildCastTarget: () => { url: string; title: string } | null;
+  buildCastTarget: () => { url: string; title: string; kind?: string } | null;
 }
 
 export default function CastModal({
@@ -34,6 +34,7 @@ export default function CastModal({
   const [serverBase, setServerBase] = useState('');
   const [devices, setDevices] = useState<DlnaDevice[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState(false);
   const [castingTo, setCastingTo] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +53,10 @@ export default function CastModal({
     setStatus(null);
     setError(null);
     setCastingTo(null);
-    handleScan();
+    setScanned(false);
+    // 不再自动扫描 DLNA：伴生服务只存在于本地部署，Cloudflare 部署上
+    // 打开弹窗必报“服务不可用”，会误导用户以为投屏坏了。
+    // DLNA 改为用户点“扫描”时才尝试；手机遥控电视（下方）开箱即用。
     return () => {
       // 关闭弹窗时断开遥控信令
       setRemoteMqtt((m) => {
@@ -80,6 +84,7 @@ export default function CastModal({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setScanning(false);
+      setScanned(true);
     }
   };
 
@@ -132,7 +137,8 @@ export default function CastModal({
     }
     setRemoteError(null);
     remoteMqtt?.close();
-    const mqtt = new MiniMqtt();
+    // 以配对码为 rendezvous key：手机与电视按同一码选同一 broker，必能相遇
+    const mqtt = new MiniMqtt(undefined, code);
     mqtt.onMessage((topic, payload) => {
       if (topic !== `moontv/tv/${code}/status`) return;
       try {
@@ -145,6 +151,12 @@ export default function CastModal({
     mqtt.onConnect = () => {
       setRemoteState('online');
       mqtt.subscribe(`moontv/tv/${code}/status`);
+      // 主动 ping 一下电视：电视会立即回一份 retained 在线状态，
+      // 避免“电视先上线、手机后连接”时永远等不到状态广播
+      mqtt.publish(
+        `moontv/tv/${code}/cmd`,
+        JSON.stringify({ type: 'ping' }),
+      );
     };
     mqtt.connect();
     setRemoteMqtt(mqtt);
@@ -175,7 +187,12 @@ export default function CastModal({
       /^https?:\/\//i.test(target.url) && !target.url.startsWith('/')
         ? target.url
         : `${window.location.origin}${target.url.startsWith('/') ? '' : '/'}${target.url}`;
-    remoteSend({ type: 'play', url, title: target.title });
+    remoteSend({
+      type: 'play',
+      url,
+      title: target.title,
+      kind: target.kind || (/\.m3u8?($|\?)/i.test(url) ? 'm3u8' : 'ts'),
+    });
     setRemoteError(null);
   };
 
@@ -335,7 +352,7 @@ export default function CastModal({
             </div>
           )}
 
-          {!scanning && devices.length === 0 && !error && !status && (
+          {!scanning && scanned && devices.length === 0 && !error && !status && (
             <div className='py-6 text-center text-sm text-gray-400'>
               {t('castNoDevices')}
             </div>

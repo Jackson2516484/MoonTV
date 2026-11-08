@@ -51,6 +51,17 @@ interface SegmentList {
   segments: string[];
   /** EXT-X-MAP 初始化分片（fMP4 播放列表），无则为 null */
   initSegment: string | null;
+  /**
+   * AES-128 加密信息（EXT-X-KEY）。此前完全未处理：加密分片被直接拼接
+   * 转封装，产物是坏 MP4（“下载完播不了”的根因之一）。
+   * 仅支持整片同一把 key 的常见情形；keyUrl 为原始地址，出口再代理化。
+   */
+  encryption: {
+    keyUrl: string;
+    /** 显式 IV（hex，无 0x 前缀）；无则按媒体序号推导 */
+    iv: string | null;
+    mediaSequence: number;
+  } | null;
 }
 
 // 解析 m3u8 播放列表，返回所有分片
@@ -103,6 +114,21 @@ async function fetchAllSegments(
   if (mapMatch && mapMatch[1]) {
     initSegment = resolve(mapMatch[1]);
   }
+  // EXT-X-KEY：AES-128 加密（取第一把 key；整片同 key 是资源站常见形态）
+  let encryption: SegmentList['encryption'] = null;
+  const keyMatch = first.text.match(/#EXT-X-KEY:[^\r\n]*/);
+  if (keyMatch && /METHOD=AES-128/i.test(keyMatch[0])) {
+    const uriMatch = keyMatch[0].match(/URI="([^"]+)"/);
+    const ivMatch = keyMatch[0].match(/IV=0x([0-9a-fA-F]+)/);
+    if (uriMatch && uriMatch[1]) {
+      const seqMatch = first.text.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/);
+      encryption = {
+        keyUrl: resolve(uriMatch[1]),
+        iv: ivMatch && ivMatch[1] ? ivMatch[1].toLowerCase() : null,
+        mediaSequence: seqMatch ? parseInt(seqMatch[1], 10) || 0 : 0,
+      };
+    }
+  }
   const segments: string[] = [];
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -112,7 +138,7 @@ async function fetchAllSegments(
   if (segments.length === 0) {
     throw new Error('播放列表中没有找到分片');
   }
-  return { segments, initSegment };
+  return { segments, initSegment, encryption };
 }
 
 async function fetchPlaylist(
@@ -214,7 +240,10 @@ export async function GET(request: NextRequest) {
 
     if (mode === 'segments') {
       // 服务端解析播放列表，返回经代理的同源分片地址，规避 CORS / 防盗链
-      const { segments, initSegment } = await fetchAllSegments(url, referer);
+      const { segments, initSegment, encryption } = await fetchAllSegments(
+        url,
+        referer,
+      );
       const proxyPath = request.nextUrl.pathname;
       const toProxied = (segment: string) =>
         `${proxyPath}?mode=raw&url=${encodeURIComponent(segment)}${
@@ -224,6 +253,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         segments: proxiedSegments,
         initSegment: initSegment ? toProxied(initSegment) : null,
+        encryption: encryption
+          ? {
+              keyUrl: toProxied(encryption.keyUrl),
+              iv: encryption.iv,
+              mediaSequence: encryption.mediaSequence,
+            }
+          : null,
       });
     }
 

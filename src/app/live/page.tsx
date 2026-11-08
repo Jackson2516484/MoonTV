@@ -17,6 +17,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 
 import CastModal from '@/components/CastModal';
 import {
+  getLiveCastProxyUrl,
   getLivePlaybackCandidates,
   getLivePlaybackProxyUrl,
   getLiveRelayBase,
@@ -65,7 +66,12 @@ function saveCustomSources(sources: LiveSource[]) {
 
 function loadChannelCache(): Record<
   string,
-  { channels: LiveChannel[]; fetchedAt: number }
+  {
+    channels: LiveChannel[];
+    fetchedAt: number;
+    programs?: Record<string, unknown>;
+    tvgUrl?: string;
+  }
 > {
   try {
     const raw = localStorage.getItem(CHANNEL_CACHE_KEY);
@@ -77,7 +83,15 @@ function loadChannelCache(): Record<
 }
 
 function saveChannelCache(
-  cache: Record<string, { channels: LiveChannel[]; fetchedAt: number }>,
+  cache: Record<
+    string,
+    {
+      channels: LiveChannel[];
+      fetchedAt: number;
+      programs?: Record<string, unknown>;
+      tvgUrl?: string;
+    }
+  >,
 ) {
   localStorage.setItem(CHANNEL_CACHE_KEY, JSON.stringify(cache));
 }
@@ -89,6 +103,9 @@ function LivePageClient() {
   const artRef = useRef<HTMLDivElement | null>(null);
   const artPlayerRef = useRef<any>(null);
   const mpegtsRef = useRef<any>(null);
+  // TS 直播看门狗与重连计数（按 频道#通道 记录）
+  const tsWatchdogRef = useRef<number | null>(null);
+  const tsRecoveryRef = useRef<Record<string, number>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // 播放核心：单一 HLS 实例复用 + 预加载下一个频道（m3u8 用 HLS，ts/udp 用 mpegts）
@@ -243,10 +260,11 @@ function LivePageClient() {
     }
   }, [sourcesLoaded, configSources.length, customSources.length]);
 
-  // 为频道列表拉取 EPG 节目单（文件导入等内嵌频道场景）
+  // 为频道列表拉取 EPG 节目单（异步填充，不阻塞频道列表与播放）
   const fetchProgramsForChannels = async (
     list: LiveChannel[],
     epgUrl?: string,
+    cacheKey?: string,
   ) => {
     if (!epgUrl || list.length === 0) return;
     try {
@@ -265,6 +283,18 @@ function LivePageClient() {
       const data = await res.json();
       if (res.ok && data.success && data.programs) {
         setPrograms((prev) => ({ ...prev, ...data.programs }));
+        // 顺带把节目单存进频道缓存，复访直接可用
+        if (cacheKey) {
+          try {
+            const cache = loadChannelCache();
+            if (cache[cacheKey]) {
+              cache[cacheKey].programs = data.programs;
+              saveChannelCache(cache);
+            }
+          } catch (err) {
+            // 忽略缓存写入失败
+          }
+        }
       }
     } catch (err) {
       console.error('EPG 加载失败:', err);
@@ -306,6 +336,16 @@ function LivePageClient() {
     const cached = cache[source.key];
     if (cached && Date.now() - cached.fetchedAt < 30 * 60 * 1000) {
       setChannels(cached.channels);
+      // 命中缓存时也要恢复 EPG 节目单，否则二次打开源节目单会消失
+      if (cached.programs && typeof cached.programs === 'object') {
+        setPrograms(cached.programs as any);
+      } else if (cached.tvgUrl || (source as any).epg) {
+        // 缓存里没存节目单时异步补拉一次
+        fetchProgramsForChannels(
+          cached.channels,
+          cached.tvgUrl || (source as any).epg,
+        );
+      }
       if (autoChannelId) {
         const found = cached.channels.find((ch) => ch.id === autoChannelId);
         if (found) handleChannelSelect(found);
@@ -333,13 +373,19 @@ function LivePageClient() {
         ? data.channels
         : [];
       setChannels(nextChannels);
-      // 服务端已顺带返回 EPG 节目单
-      if (data.programs && typeof data.programs === 'object') {
-        setPrograms(data.programs);
-      }
+      // EPG 改为异步填充：频道先出，节目单随后补（不再阻塞列表）
+      fetchProgramsForChannels(
+        nextChannels,
+        data.tvgUrl || (source as any).epg || source.epg,
+        source.key,
+      );
 
       const nextCache = loadChannelCache();
-      nextCache[source.key] = { channels: nextChannels, fetchedAt: Date.now() };
+      nextCache[source.key] = {
+        channels: nextChannels,
+        fetchedAt: Date.now(),
+        tvgUrl: data.tvgUrl || undefined,
+      };
       saveChannelCache(nextCache);
 
       if (autoChannelId) {
@@ -576,20 +622,48 @@ function LivePageClient() {
       isUdpStreamUrl(channelUrl) || /\.(flv|ts|m2ts|mpeg)(\?|$)/i.test(channelUrl);
     if (needsMse && Mpegts && typeof Mpegts.isSupported === 'function' && Mpegts.isSupported()) {
       try {
+        // 看门狗：直播流卡死（currentTime 长时间不前进）或断流时自动重连
+        const recoveryKey = `${channel.id}#${attemptIndex}`;
+        const scheduleRecover = () => {
+          const used = tsRecoveryRef.current[recoveryKey] || 0;
+          if (used >= 3) {
+            // 重连次数用尽 → 换下一个通道 / 报错（不再回退原生播放：
+            // 浏览器原生不支持裸 TS 流，回退只会黑屏无声）
+            if (!tryNextPlaybackCandidate(video, channel, attemptIndex)) {
+              setIsVideoLoading(false);
+              setPlayError(t('livePlayFailed'));
+            }
+            return;
+          }
+          tsRecoveryRef.current[recoveryKey] = used + 1;
+          if (tsWatchdogRef.current) {
+            window.clearInterval(tsWatchdogRef.current);
+            tsWatchdogRef.current = null;
+          }
+          window.setTimeout(() => {
+            if (playAttemptRef.current.channelId !== channel.id) return;
+            createDirectPlayback(video, url, channel, attemptIndex);
+          }, 800);
+        };
         const player = Mpegts.createPlayer(
           { type: 'mpegts', isLive: true, url, cors: true },
           {
             enableWorker: true,
             enableStashBuffer: true,
-            stashInitialSize: 8 * 1024 * 1024,
+            // 原 8MB 暂存 ≈ 1080p 约 13 秒数据：起播慢、卡后恢复慢，是卡顿主因之一
+            stashInitialSize: 512 * 1024,
             isLive: true,
-            liveBufferLatencyChasing: false, // 慢速中转下关闭追边，以流畅优先
+            // 开启追赶直播边缘并限制最大延迟，避免缓冲越积越厚最终卡死
+            liveBufferLatencyChasing: true,
+            liveBufferLatencyMaxLatency: 3,
+            liveBufferLatencyMinRemain: 0.5,
+            fixAudioTimestampGap: true,
+            autoCleanupSourceBuffer: true,
           },
         );
         player.attachMediaElement(video);
         mpegtsRef.current = player;
         player.on(Mpegts.Events.ERROR, () => {
-          // mpegts 解析失败 → 先尝试下一个代理通道，最后回退原生播放
           try {
             player.unload?.();
             player.destroy?.();
@@ -597,14 +671,53 @@ function LivePageClient() {
             // 忽略
           }
           if (mpegtsRef.current === player) mpegtsRef.current = null;
-          if (!tryNextPlaybackCandidate(video, channel, attemptIndex)) {
-            video.onerror = null;
-            video.src = url;
-            video.play().catch(() => {});
-          }
+          scheduleRecover();
         });
+        // 直播流结束（上游断开）→ 自动重连
+        if (Mpegts.Events.LOADING_COMPLETE) {
+          player.on(Mpegts.Events.LOADING_COMPLETE, () => {
+            scheduleRecover();
+          });
+        }
         player.load();
         player.play();
+        // 成功出画后清零重连计数，并启动卡死看门狗
+        const onPlaying = () => {
+          tsRecoveryRef.current[recoveryKey] = 0;
+          setIsVideoLoading(false);
+        };
+        video.addEventListener('playing', onPlaying);
+        if (tsWatchdogRef.current) {
+          window.clearInterval(tsWatchdogRef.current);
+        }
+        let lastTime = -1;
+        let stallTicks = 0;
+        tsWatchdogRef.current = window.setInterval(() => {
+          if (playAttemptRef.current.channelId !== channel.id) return;
+          if (mpegtsRef.current !== player) return;
+          if (video.paused || video.ended) {
+            lastTime = video.currentTime;
+            return;
+          }
+          if (Math.abs(video.currentTime - lastTime) > 0.01) {
+            lastTime = video.currentTime;
+            stallTicks = 0;
+          } else {
+            stallTicks++;
+            // 连续约 8 秒画面不前进 → 判定卡死，重连
+            if (stallTicks >= 2) {
+              stallTicks = 0;
+              try {
+                player.unload?.();
+                player.destroy?.();
+              } catch (err) {
+                // 忽略
+              }
+              if (mpegtsRef.current === player) mpegtsRef.current = null;
+              scheduleRecover();
+            }
+          }
+        }, 4000);
         return;
       } catch (err) {
         console.error('创建 mpegts 播放器失败:', err);
@@ -720,9 +833,10 @@ function LivePageClient() {
     }
 
     // 直链流：使用 mpegts.js / 原生播放（经代理，规避混合内容/防盗链）
+    // 保持 loading 态直至真正出画（playing 事件里清除），不再假装已加载
     if (!isM3u8Url(channel.url)) {
+      setIsVideoLoading(true);
       createDirectPlayback(video, targetUrl, channel, attemptIdx);
-      setIsVideoLoading(false);
       return;
     }
 
@@ -788,31 +902,10 @@ function LivePageClient() {
         }
       }
 
-      // TS/udp 预加载：把已缓冲的 mpegts 播放器直接挂到主 video 上
-      if (preloaded.tsPlayer) {
-        try {
-          video.removeAttribute('src');
-          preloaded.tsPlayer.detachMediaElement();
-          preloaded.tsPlayer.attachMediaElement(video);
-          mpegtsRef.current = preloaded.tsPlayer;
-          preloaded.video.remove();
-          preloadRef.current = null;
-          setIsVideoLoading(false);
-          video.play().catch(() => {});
-          player.play();
-          return true;
-        } catch (err) {
-          try {
-            preloaded.tsPlayer?.unload?.();
-            preloaded.tsPlayer?.destroy?.();
-          } catch (err2) {
-            // 忽略
-          }
-          preloaded.video?.remove();
-          preloadRef.current = null;
-          return false;
-        }
-      }
+      // 注意：TS/udp 频道不再走预加载接管。mpegts.js 的 detachMediaElement()
+      // 会 shutdown 并销毁 MSE 控制器，已缓冲的初始化段随之丢失，接管到主
+      // video 后新 MSE 没有 init segment 必然黑屏无画面（此前“切台无画面”的
+      // 根因）。TS 频道改为快速冷启动切台（小暂存 + 追边），见 createDirectPlayback。
 
       let transferred = false;
       if (typeof preloaded.hls.transferMedia === 'function') {
@@ -885,36 +978,11 @@ function LivePageClient() {
     video.style.display = 'none';
     document.body.appendChild(video);
 
-    // 非 m3u8（ts/flv/udp）：用 mpegts.js 在隐藏 video 上预缓冲
+    // 非 m3u8（ts/flv/udp）：不做 MSE 预加载接管（detach 会销毁 MSE，
+    // 接管后必然黑屏，详见 tryConsumePreload 注释）。TS 切台走快速冷启动。
     if (!isM3u8Url(next.url)) {
-      if (!Mpegts || typeof Mpegts.isSupported !== 'function' || !Mpegts.isSupported()) {
-        video.remove();
-        return;
-      }
-      try {
-        const tsPlayer = Mpegts.createPlayer(
-          { type: 'mpegts', isLive: true, url: targetUrl, cors: true },
-          {
-            enableWorker: true,
-            enableStashBuffer: true,
-            stashInitialSize: 4 * 1024 * 1024,
-            isLive: true,
-            liveBufferLatencyChasing: false,
-          },
-        );
-        tsPlayer.attachMediaElement(video);
-        tsPlayer.on(Mpegts.Events.ERROR, () => {
-          cancelPreload();
-        });
-        tsPlayer.load();
-        // 静音播放以填充 MSE 缓冲
-        video.play().catch(() => {});
-        preloadRef.current = { url: targetUrl, tsPlayer, video };
-        return;
-      } catch (err) {
-        video.remove();
-        return;
-      }
+      video.remove();
+      return;
     }
 
     if (!Hls) {
@@ -937,7 +1005,8 @@ function LivePageClient() {
     hls.loadSource(targetUrl);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, () => {
-      cancelPreload();
+      // 只清理属于自己的预加载，避免误杀后来新建的预加载实例
+      if (preloadRef.current?.hls === hls) cancelPreload();
     });
     preloadRef.current = { url: targetUrl, hls, video };
   };
@@ -967,6 +1036,12 @@ function LivePageClient() {
     setCurrentChannel(channel);
     setPlayError(null);
     setIsVideoLoading(true);
+    // 手动切台重置 TS 看门狗与重连计数
+    if (tsWatchdogRef.current) {
+      window.clearInterval(tsWatchdogRef.current);
+      tsWatchdogRef.current = null;
+    }
+    tsRecoveryRef.current = {};
     playAttemptRef.current = { channelId: channel.id, index: 0 };
 
     if (!artPlayerRef.current) {
@@ -977,6 +1052,9 @@ function LivePageClient() {
 
     // 命中预加载 → 近乎无缝切换
     if (tryConsumePreload(channel)) return;
+
+    // 未命中：先取消残留预加载，避免隐藏播放器在后台继续拉流抢带宽
+    cancelPreload();
 
     // 常规切换：复用同一播放器
     playChannelInPlayer(channel);
@@ -1022,8 +1100,10 @@ function LivePageClient() {
     const ch = currentChannel;
     if (!ch) return null;
     return {
-      url: toAbsoluteUrl(getLivePlaybackProxyUrl(ch.url, currentSource?.ua)),
+      // TS 流走 stream.ts 端点并带 kind，电视端据此选 mpegts.js 而非 HLS
+      url: toAbsoluteUrl(getLiveCastProxyUrl(ch.url, currentSource?.ua)),
       title: ch.name,
+      kind: isM3u8Url(ch.url) ? 'm3u8' : 'ts',
     };
   };
 

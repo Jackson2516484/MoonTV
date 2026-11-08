@@ -53,7 +53,9 @@ export class TsToMp4Converter {
           const init = toU8(segment.initSegment);
           if (init.byteLength > 0) {
             this.initSegment = init;
-            this.chunks.push(init);
+            // 流式消费（onData 已设置）时不再留存 chunk：此前转换器与
+            // 写出端各存一份，整集下载内存翻倍，长视频必爆
+            if (!this.onData) this.chunks.push(init);
             this.producedBytes += init.byteLength;
             if (this.onData) this.onData(init, true);
           }
@@ -61,7 +63,7 @@ export class TsToMp4Converter {
         if (segment.data) {
           const d = toU8(segment.data);
           if (d.byteLength > 0) {
-            this.chunks.push(d);
+            if (!this.onData) this.chunks.push(d);
             this.producedBytes += d.byteLength;
             if (this.onData) this.onData(d, false);
           }

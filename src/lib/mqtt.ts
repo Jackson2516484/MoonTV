@@ -5,7 +5,26 @@
 
 export type MqttMessageHandler = (topic: string, payload: string) => void;
 
-const MQTT_WS_URL = 'wss://broker.emqx.io:8084/mqtt';
+// 公共 broker 列表（免账号）。单点 broker 拥塞/宕机是投屏连不上的常见原因：
+// 连接双方以配对码为 rendezvous key 做一致性选择，保证手机与电视必落同一 broker。
+// 两个 broker 均已实测可用（含 retained 消息与指令投递全链路）：
+// 国内节点延迟更低作主选，国际节点作按码分流的备选。
+// （HiveMQ / Mosquitto / Eclipse 公共 broker 实测均连不上，已剔除。）
+const MQTT_BROKERS = [
+  'wss://broker-cn.emqx.io:8084/mqtt',
+  'wss://broker.emqx.io:8084/mqtt',
+];
+
+export function pickBroker(rendezvousKey?: string): string {
+  if (!rendezvousKey) return MQTT_BROKERS[0];
+  let h = 0;
+  for (let i = 0; i < rendezvousKey.length; i++) {
+    h = (h * 31 + rendezvousKey.charCodeAt(i)) >>> 0;
+  }
+  return MQTT_BROKERS[h % MQTT_BROKERS.length];
+}
+
+const MQTT_WS_URL = MQTT_BROKERS[0];
 
 function encodeUtf8(s: string): Uint8Array {
   return new TextEncoder().encode(s);
@@ -51,8 +70,10 @@ export class MiniMqtt {
   private pendingSubs: string[] = [];
   onConnect: (() => void) | null = null;
 
-  constructor(url: string = MQTT_WS_URL) {
-    this.url = url;
+  constructor(url: string = MQTT_WS_URL, rendezvousKey?: string) {
+    // 传了配对码则按码选 broker（手机/电视同码同 broker）；显式传 url 时以 url 为准
+    this.url =
+      rendezvousKey && url === MQTT_WS_URL ? pickBroker(rendezvousKey) : url;
     this.clientId =
       'moontv_' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4);
   }
@@ -136,13 +157,17 @@ export class MiniMqtt {
     if (this.connectedFlag) this.sendSubscribe(topic);
   }
 
-  publish(topic: string, payload: string): boolean {
+  publish(
+    topic: string,
+    payload: string,
+    opts?: { retain?: boolean },
+  ): boolean {
     if (!this.connectedFlag || !this.ws) return false;
     try {
       const t = encodeUtf8(topic);
       const p = encodeUtf8(payload);
       const frame = concat(
-        0x30,
+        opts?.retain ? 0x31 : 0x30,
         encodeRemainingLength(2 + t.length + p.length),
         ((): number[] => {
           const len = [(t.length >> 8) & 0xff, t.length & 0xff];
