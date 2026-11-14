@@ -22,6 +22,7 @@ function DoubanPageClient() {
   const [currentPage, setCurrentPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectorsReady, setSelectorsReady] = useState(false);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadingRef = useRef<HTMLDivElement>(null);
@@ -152,6 +153,7 @@ function DoubanPageClient() {
   const loadInitialData = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       let data: DoubanResult;
 
       if (type === 'custom') {
@@ -178,12 +180,15 @@ function DoubanPageClient() {
       if (data.code === 200) {
         setDoubanData(data.list);
         setHasMore(data.list.length === 25);
-        setLoading(false);
       } else {
         throw new Error(data.message || '获取数据失败');
       }
     } catch (err) {
       console.error(err);
+      // 失败必须退出骨架屏并给出可重试的明确提示，不能无限加载
+      setLoadError('网络不稳定，加载失败。请检查网络后重试。');
+    } finally {
+      setLoading(false);
     }
   }, [
     type,
@@ -462,8 +467,21 @@ function DoubanPageClient() {
             <div className='text-center text-gray-500 py-8'>已加载全部内容</div>
           )}
 
+          {/* 加载失败：显示原因和重试按钮，不再无限骨架屏 */}
+          {!loading && loadError && doubanData.length === 0 && (
+            <div className='text-center py-8'>
+              <p className='text-gray-500 mb-4'>{loadError}</p>
+              <button
+                onClick={() => loadInitialData()}
+                className='px-5 py-2 rounded-full bg-green-600 text-white text-sm'
+              >
+                重新加载
+              </button>
+            </div>
+          )}
+
           {/* 空状态 */}
-          {!loading && doubanData.length === 0 && (
+          {!loading && !loadError && doubanData.length === 0 && (
             <div className='text-center text-gray-500 py-8'>暂无相关内容</div>
           )}
         </div>

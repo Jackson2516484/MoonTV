@@ -124,6 +124,38 @@ export async function fetchDoubanCategories(
 }
 
 /**
+ * 请求本站服务端 API：单次 12 秒超时，失败自动重试（共 3 次，退避递增）。
+ * 国内直连 Cloudflare 时偶发丢包/超时，靠重试把一次抖动兜住，
+ * 避免页面因为单次请求失败就永久停在骨架屏。
+ */
+async function fetchServerApiWithRetry(url: string): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      lastError = error;
+      if (attempt < 2) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, 600 * (attempt + 1))
+        );
+      }
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('请求本站豆瓣接口失败');
+}
+
+/**
  * 统一的豆瓣分类数据获取函数，根据代理设置选择使用服务端 API 或客户端代理获取
  */
 export async function getDoubanCategories(
@@ -135,13 +167,9 @@ export async function getDoubanCategories(
   } else {
     // 使用服务端 API（当没有设置代理 URL 时）
     const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
-    const response = await fetch(
+    const response = await fetchServerApiWithRetry(
       `/api/douban/categories?kind=${kind}&category=${category}&type=${type}&limit=${pageLimit}&start=${pageStart}`
     );
-
-    if (!response.ok) {
-      throw new Error('获取豆瓣分类数据失败');
-    }
 
     return response.json();
   }
@@ -162,13 +190,9 @@ export async function getDoubanList(
     // 使用客户端代理获取（当设置了代理 URL 时）
     return fetchDoubanList(params);
   } else {
-    const response = await fetch(
+    const response = await fetchServerApiWithRetry(
       `/api/douban?tag=${tag}&type=${type}&pageSize=${pageLimit}&pageStart=${pageStart}`
     );
-
-    if (!response.ok) {
-      throw new Error('获取豆瓣列表数据失败');
-    }
 
     return response.json();
   }
